@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --cruda-black: #111313;
+    --cruda-graphite: #292B2B;
+    --cruda-cement: #A7A7A2;
+    --cruda-mineral: #F1F0EB;
+    --cruda-sand: #D5C8B5;
+    --cruda-olive: #596153;
+    --cruda-champagne: #B6A17E;
+  }
+
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+  }
+
+  /* Modern Web Guidance: scroll containment on modals */
+  dialog:modal {
+    overscroll-behavior: contain;
+  }
+
+  dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    background: rgba(17, 19, 19, 0.72);
+    backdrop-filter: blur(8px);
+  }
+
+  /* Accessible high-contrast focus indicator (WCAG 2.2 AA 3:1+) */
+  :where(a:any-link, button, input, select, textarea):focus-visible {
+    outline: 2px solid #B6A17E;
+    outline-offset: 2px;
+  }
+
+  /* Custom subtle architectural scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #F1F0EB;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #A7A7A2;
+    border-radius: 0px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #596153;
+  }
+}
+
+/* Visually hidden utility that stays in the accessibility tree and reveals on focus for skip links */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+@layer utilities {
+  /* Editorial glassmorphism */
+  .glass-light {
+    background: rgba(241, 240, 235, 0.84);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(167, 167, 162, 0.28);
+  }
+
+  .glass-dark {
+    background: rgba(17, 19, 19, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(241, 240, 235, 0.12);
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(213, 200, 181, 0.45);
+  }
+
+  /* Brutalist architectural grain/noise simulation */
+  .bg-concrete-grain {
+    background-color: #F1F0EB;
+    background-image: radial-gradient(#292B2B 0.65px, transparent 0.65px), radial-gradient(#D5C8B5 0.65px, #F1F0EB 0.65px);
+    background-size: 26px 26px;
+    background-position: 0 0, 13px 13px;
+    opacity: 0.98;
+  }
+
+  .bg-concrete-dark {
+    background-color: #111313;
+    background-image: radial-gradient(rgba(241, 240, 235, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Architectural geometric grid lines */
+  .arch-grid-lines {
+    background-size: 60px 60px;
+    background-image: 
+      linear-gradient(to right, rgba(167, 167, 162, 0.14) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(167, 167, 162, 0.14) 1px, transparent 1px);
+  }
+}

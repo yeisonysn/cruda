@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>CRUDA — STL & AR Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Import map para cargar Three.js y STLLoader desde CDN de forma modular -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Contenedor Principal de la Aplicación -->
+  <div id="app">
+    <!-- Header / Barra superior -->
+    <header class="app-header">
+      <div class="logo">CRUDA <span>AR</span></div>
+      <button id="toggle-admin-btn" class="btn-secondary">Modo Admin</button>
+    </header>
+
+    <!-- Panel de Administración (Desplegable / Modal) -->
+    <div id="admin-panel" class="admin-panel hidden">
+      <div class="admin-content">
+        <div class="admin-header">
+          <h3>Subir Modelo STL (Admin)</h3>
+          <button id="close-admin-btn" class="btn-icon">&times;</button>
+        </div>
+        <form id="upload-form">
+          <label>
+            Contraseña de Administrador:
+            <input type="password" id="admin-password" placeholder="ADMIN_PASSWORD" required>
+          </label>
+          <label>
+            Nombre del modelo:
+            <input type="text" id="model-name" placeholder="Ej. Matera Cilíndrica" required>
+          </label>
+          <label>
+            Archivo STL (máx. 20 MB):
+            <input type="file" id="stl-file" accept=".stl" required>
+          </label>
+          <button type="submit" id="upload-btn" class="btn-primary">Subir Modelo</button>
+          <p id="upload-status" class="status-msg"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Contenedor del Visor 3D y Controles de Usuario -->
+    <main class="viewer-container">
+      <div id="canvas-container"></div>
+
+      <!-- Barra de herramientas inferior (UI minimalista) -->
+      <div class="controls-overlay">
+        <div class="control-group">
+          <label for="stl-select">Modelo:</label>
+          <select id="stl-select">
+            <option value="">Cargando modelos...</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="color-picker">Color:</label>
+          <input type="color" id="color-picker" value="#9e9e99">
+        </div>
+
+        <button id="start-ar-btn" class="btn-primary" disabled>Ver en AR</button>
+      </div>
+    </main>
+
+    <!-- Overlay de Instrucciones / Salir durante la sesión AR -->
+    <div id="ar-overlay" class="ar-overlay hidden">
+      <div class="ar-instructions">
+        <p id="ar-guide-text">Apunta al suelo para detectar superficies y toca para anclar</p>
+      </div>
+      <button id="exit-ar-btn" class="btn-danger">Salir de AR</button>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

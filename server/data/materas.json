@@ -1,0 +1,20 @@
+[
+  {
+    "id": "mat-1793566170811",
+    "nombre": "bola",
+    "descripcion": "",
+    "precio": 15000,
+    "archivo": "1793566170789-44517398.stl",
+    "archivoUrl": "/uploads/1793566170789-44517398.stl",
+    "creadoEn": "2026-11-01T20:49:30.811Z"
+  },
+  {
+    "id": "mat-1793567652118",
+    "nombre": "nn",
+    "descripcion": "",
+    "precio": 333,
+    "archivo": "1793567652056-412612388.stl",
+    "archivoUrl": "/uploads/1793567652056-412612388.stl",
+    "creadoEn": "2026-11-01T21:14:12.118Z"
+  }
+]

@@ -1,0 +1,337 @@
+/* ==========================================================================
+   Estilos Minimalistas — CRUDA STL & AR Viewer
+   ========================================================================== */
+
+:root {
+  --bg-color: #111313;
+  --surface-color: #181a1a;
+  --surface-border: #292b2b;
+  --text-main: #f1f0eb;
+  --text-muted: #a7a7a2;
+  --accent: #b6a17e;
+  --accent-hover: #c9b593;
+  --danger: #9e3d3d;
+  --danger-hover: #b54747;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.app-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(17, 19, 19, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--surface-border);
+  z-index: 20;
+}
+
+.logo {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.logo span {
+  color: var(--accent);
+  font-size: 0.85em;
+}
+
+/* Viewer Container */
+.viewer-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+#canvas-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* Controles Inferiores (UI Flotante) */
+.controls-overlay {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  max-width: 480px;
+  background: rgba(24, 26, 26, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 20;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.control-group label {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+select {
+  background: var(--bg-color);
+  color: var(--text-main);
+  border: 1px solid var(--surface-border);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  outline: none;
+  max-width: 180px;
+}
+
+input[type="color"] {
+  -webkit-appearance: none;
+  border: 1px solid var(--surface-border);
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: none;
+  padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 6px;
+}
+
+/* Botones */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #111313;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  padding: 10px 18px;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--surface-border);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+.btn-secondary:hover {
+  color: var(--text-main);
+  border-color: var(--text-muted);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  padding: 10px 20px;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+
+.btn-danger:hover {
+  background: var(--danger-hover);
+}
+
+.btn-icon {
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  color: var(--text-main);
+}
+
+/* Panel de Administración */
+.admin-panel {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.admin-content {
+  background: var(--surface-color);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.admin-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+#upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#upload-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+#upload-form input[type="text"],
+#upload-form input[type="password"],
+#upload-form input[type="file"] {
+  background: var(--bg-color);
+  color: var(--text-main);
+  border: 1px solid var(--surface-border);
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.status-msg {
+  font-size: 0.8rem;
+  text-align: center;
+  min-height: 1.2em;
+}
+
+.status-msg.error {
+  color: #ff6b6b;
+}
+
+.status-msg.success {
+  color: #51cf66;
+}
+
+/* Overlay durante AR */
+.ar-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 40px 20px;
+}
+
+.ar-instructions {
+  background: rgba(17, 19, 19, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--surface-border);
+  padding: 10px 18px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  text-align: center;
+}
+
+.ar-overlay button {
+  pointer-events: auto;
+}
+
+.hidden {
+  display: none !important;
+}
