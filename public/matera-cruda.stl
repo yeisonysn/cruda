@@ -1,0 +1,86 @@
+solid cruda_planter
+  facet normal 0 0 -1
+    outer loop
+      vertex -10 -10 0
+      vertex 10 10 0
+      vertex 10 -10 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex -10 -10 0
+      vertex -10 10 0
+      vertex 10 10 0
+    endloop
+  endfacet
+  facet normal 0 -0.98 0.19
+    outer loop
+      vertex -10 -10 0
+      vertex 10 -10 0
+      vertex 14 -14 24
+    endloop
+  endfacet
+  facet normal 0 -0.98 0.19
+    outer loop
+      vertex -10 -10 0
+      vertex 14 -14 24
+      vertex -14 -14 24
+    endloop
+  endfacet
+  facet normal 0.98 0 0.19
+    outer loop
+      vertex 10 -10 0
+      vertex 10 10 0
+      vertex 14 14 24
+    endloop
+  endfacet
+  facet normal 0.98 0 0.19
+    outer loop
+      vertex 10 -10 0
+      vertex 14 14 24
+      vertex 14 -14 24
+    endloop
+  endfacet
+  facet normal 0 0.98 0.19
+    outer loop
+      vertex 10 10 0
+      vertex -10 10 0
+      vertex -14 14 24
+    endloop
+  endfacet
+  facet normal 0 0.98 0.19
+    outer loop
+      vertex 10 10 0
+      vertex -14 14 24
+      vertex 14 14 24
+    endloop
+  endfacet
+  facet normal -0.98 0 0.19
+    outer loop
+      vertex -10 10 0
+      vertex -10 -10 0
+      vertex -14 -14 24
+    endloop
+  endfacet
+  facet normal -0.98 0 0.19
+    outer loop
+      vertex -10 10 0
+      vertex -14 -14 24
+      vertex -14 14 24
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -14 -14 24
+      vertex 14 -14 24
+      vertex 14 14 24
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -14 -14 24
+      vertex 14 14 24
+      vertex -14 14 24
+    endloop
+  endfacet
+endsolid cruda_planter
