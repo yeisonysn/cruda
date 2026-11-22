@@ -35,6 +35,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/n8n-webhook': {
+        target: 'http://127.0.0.1:5678',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/n8n-webhook/, '/webhook'),
+      },
     },
   },
 });

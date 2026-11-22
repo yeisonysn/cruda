@@ -27,6 +27,7 @@ import {
 import { ArchitecturalRender } from './components/ArchitecturalRender';
 import { Interactive3DLab, ServerStlMatera } from './components/Interactive3DLab';
 import { StlViewer } from './components/StlViewer';
+import { CrudaAiChatDrawer } from './components/CrudaAiChatDrawer';
 
 const WHATSAPP_PHONE = '573108204522';
 
@@ -160,6 +161,9 @@ export function App() {
   const [isUploadingStl, setIsUploadingStl] = useState<boolean>(false);
   const [adminOrders, setAdminOrders] = useState<OrderResponse[]>([]);
   const adminDialogRef = useRef<HTMLDialogElement>(null);
+
+  // ─── Chat Lateral IA (n8n + Gemini + Postgres) ────────────────────────────
+  const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
 
   // Feedback Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -599,6 +603,15 @@ Dirección: ${customerForm.address || 'Por definir'}
 
           {/* Acciones Rápidas */}
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsAiChatOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#111313] bg-[#FAF8F5] hover:bg-[#111313] hover:text-[#FDFCFA] font-mono text-[11px] uppercase tracking-wider text-[#111313] transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#B6A17E]" />
+              <span>Asesor IA</span>
+            </button>
+
             <a
               href={`https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent('Hola CRUDA, deseo información sobre sus materas de concreto.')}`}
               target="_blank"
@@ -1740,9 +1753,16 @@ Dirección: ${customerForm.address || 'Por definir'}
         )}
       </dialog>
 
+      {/* Chat Lateral IA conectado a n8n + Gemini + PostgreSQL */}
+      <CrudaAiChatDrawer
+        isOpen={isAiChatOpen}
+        onOpen={() => setIsAiChatOpen(true)}
+        onClose={() => setIsAiChatOpen(false)}
+      />
+
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#111313] text-[#FDFCFA] font-mono text-xs px-4 py-2.5 border border-[#B6A17E]/40 shadow-xl">
+        <div className="fixed bottom-20 right-6 z-50 bg-[#111313] text-[#FDFCFA] font-mono text-xs px-4 py-2.5 border border-[#B6A17E]/40 shadow-xl">
           {toastMessage}
         </div>
       )}

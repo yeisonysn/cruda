@@ -605,6 +605,68 @@ app.post('/api/contact', (req, res) => {
   res.status(201).json({ mensaje: 'Solicitud recibida. Nuestro equipo de arquitectura te contactará en menos de 24 horas hábiles.', entry });
 });
 
+// ─── Puente con Agente de Ventas IA en n8n (Gemini + Postgres Blindado) ────
+
+const N8N_CHAT_WEBHOOK_URL =
+  process.env.N8N_CHAT_WEBHOOK_URL || 'http://127.0.0.1:5678/webhook/cruda-agente-ventas/chat';
+
+app.post('/api/ai-chat', async (req, res) => {
+  const { chatInput, sessionId } = req.body as { chatInput?: string; sessionId?: string };
+  if (!chatInput || !String(chatInput).trim()) {
+    res.status(400).json({ error: 'El mensaje no puede estar vacío.' });
+    return;
+  }
+
+  const cleanSessionId = String(sessionId || `cruda-web-${Date.now()}`).trim();
+
+  try {
+    const n8nRes = await fetch(N8N_CHAT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'sendMessage',
+        sessionId: cleanSessionId,
+        chatInput: String(chatInput).trim(),
+      }),
+    });
+
+    const rawText = await n8nRes.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = { output: rawText };
+    }
+
+    if (!n8nRes.ok) {
+      res.status(n8nRes.status).json({
+        error:
+          (parsed.message as string) ||
+          (parsed.error as string) ||
+          'El flujo de n8n devolvió un error. Verifica que el workflow esté activo en http://localhost:5678.',
+      });
+      return;
+    }
+
+    const reply =
+      (parsed.output as string) ||
+      (parsed.text as string) ||
+      (Array.isArray(parsed) && (parsed[0]?.output as string)) ||
+      'Sin respuesta del agente.';
+
+    res.json({
+      reply,
+      sessionId: cleanSessionId,
+    });
+  } catch (err: any) {
+    console.error('[CRUDA n8n Chat Bridge]', err?.message || err);
+    res.status(502).json({
+      error:
+        'No se pudo conectar con n8n en http://127.0.0.1:5678. Asegúrate de que el contenedor cruda-n8n esté activo.',
+    });
+  }
+});
+
 // Manejo global de errores
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[CRUDA Server]', err.message);

@@ -4,6 +4,9 @@ node_modules.nosync/
 dist/
 dist-server/
 .env
+cruda-lab/.env
+cruda-lab/local-files/*
+!cruda-lab/local-files/.gitkeep
 server/uploads/*
 !server/uploads/.gitkeep
 *.local

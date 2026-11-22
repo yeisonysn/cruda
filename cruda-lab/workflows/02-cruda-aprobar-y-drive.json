@@ -1,0 +1,151 @@
+{
+  "id": "FE6TkWLfoGDtEzSv",
+  "name": "CRUDA – Aprobar Cotización + Exportar a Google Drive",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "CRUDA · Control Humano de Cotizaciones",
+        "formDescription": "Aprueba o rechaza una cotización pendiente y respalda el comprobante en Google Drive.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "cotizacion_id",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "decision",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "aprobada" },
+                  { "option": "rechazada" }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "notas",
+              "fieldType": "text",
+              "requiredField": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a00001-0000-4000-8000-000000000001",
+      "name": "On form submission",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE cotizaciones SET estado = $2, aprobado_por = 'Yeison', fecha_decision = now(), notas = COALESCE(NULLIF($3, ''), notas) WHERE id = $1 RETURNING id, cliente_id, detalles_json, total, estado, aprobado_por, fecha_decision, notas;",
+        "options": {
+          "queryReplacement": "={{ [$('On form submission').item.json.cotizacion_id, $('On form submission').item.json.decision, $('On form submission').item.json.notas || ''] }}"
+        }
+      },
+      "id": "c2a00001-0000-4000-8000-000000000002",
+      "name": "Actualizar Estado (CRUDA Admin)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [480, 300],
+      "credentials": {
+        "postgres": {
+          "id": "pgCrudaAdmin0001",
+          "name": "CRUDA Postgres (Admin)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "createFromText",
+        "content": "={{ 'COTIZACIÓN OFICIAL CRUDA #' + $('Actualizar Estado (CRUDA Admin)').item.json.id + '\\nEstado: ' + $('Actualizar Estado (CRUDA Admin)').item.json.estado.toUpperCase() + '\\nAprobado por: ' + $('Actualizar Estado (CRUDA Admin)').item.json.aprobado_por + '\\nFecha: ' + $('Actualizar Estado (CRUDA Admin)').item.json.fecha_decision + '\\nTotal: $' + $('Actualizar Estado (CRUDA Admin)').item.json.total + ' COP\\nNotas: ' + ($('Actualizar Estado (CRUDA Admin)').item.json.notas || 'Sin notas') + '\\n\\nDetalle de Ítems:\\n' + JSON.stringify($('Actualizar Estado (CRUDA Admin)').item.json.detalles_json, null, 2) }}",
+        "name": "={{ 'CRUDA-Cotizacion-' + $('Actualizar Estado (CRUDA Admin)').item.json.id + '-' + $('Actualizar Estado (CRUDA Admin)').item.json.estado + '.txt' }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "root",
+          "cachedResultName": "/ (Root folder)"
+        },
+        "options": {}
+      },
+      "id": "c2a00001-0000-4000-8000-000000000003",
+      "name": "Guardar Comprobante en Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE cotizaciones SET drive_doc_id = $2, drive_doc_url = $3 WHERE id = $1 RETURNING id, estado, drive_doc_id, drive_doc_url;",
+        "options": {
+          "queryReplacement": "={{ [$('Actualizar Estado (CRUDA Admin)').item.json.id, $('Guardar Comprobante en Google Drive').item.json.id || null, $('Guardar Comprobante en Google Drive').item.json.webViewLink || null] }}"
+        }
+      },
+      "id": "c2a00001-0000-4000-8000-000000000004",
+      "name": "Vincular Comprobante Drive en BD",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [1040, 300],
+      "credentials": {
+        "postgres": {
+          "id": "pgCrudaAdmin0001",
+          "name": "CRUDA Postgres (Admin)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Actualizar Estado (CRUDA Admin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar Estado (CRUDA Admin)": {
+      "main": [
+        [
+          {
+            "node": "Guardar Comprobante en Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Comprobante en Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Vincular Comprobante Drive en BD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
