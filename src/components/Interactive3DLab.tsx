@@ -1,8 +1,13 @@
+// src/components/Interactive3DLab.tsx
+// Visualizador 3D interactivo y suite de Realidad Aumentada (WebXR) de CRUDA.
+// Soporta renderizado de archivos .STL del servidor, geometrías puras de catálogo,
+// rotación/zoom con mouse y touch, selección de acabados de concreto en vivo y anclaje AR.
+
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import { Camera, RotateCcw, Sun, Sparkles, Layers, ShoppingBag } from 'lucide-react';
+import { Camera, RotateCcw, ShoppingBag, MessageSquare, Sparkles, Check } from 'lucide-react';
 import { FINISH_COLORS } from '../data/catalogData';
 
 export interface ServerStlMatera {
@@ -30,6 +35,7 @@ interface Props {
     isCustomStl: boolean;
   }) => void;
   onOpenAdminModal: () => void;
+  whatsappPhone?: string;
 }
 
 type LabMode = 'procedural-cylinder' | 'procedural-octagon' | 'procedural-cone' | 'stl-model';
@@ -40,12 +46,11 @@ export const Interactive3DLab: React.FC<Props> = ({
   onSelectStlUrl,
   onAddCustomToCart,
   onOpenAdminModal,
+  whatsappPhone = '573108204522',
 }) => {
   const [labMode, setLabMode] = useState<LabMode>(stlMateras.length > 0 ? 'stl-model' : 'procedural-cylinder');
   const [activeColor, setActiveColor] = useState<string>('#A7A7A2');
   const [activeFinishName, setActiveFinishName] = useState<string>('Gris Cemento Puro');
-  const [sunAngle, setSunAngle] = useState<number>(45);
-  const [roughness, setRoughness] = useState<number>(0.84);
   const [selectedScale, setSelectedScale] = useState<'S' | 'M' | 'L'>('M');
   const [arActive, setArActive] = useState<boolean>(false);
   const [arGuide, setArGuide] = useState<string>('Apunta al suelo para detectar superficies y toca para anclar la matera');
@@ -57,7 +62,6 @@ export const Interactive3DLab: React.FC<Props> = ({
     scene?: THREE.Scene;
     camera?: THREE.PerspectiveCamera;
     controls?: OrbitControls;
-    sunLight?: THREE.DirectionalLight;
     previewGroup?: THREE.Group;
     arGroup?: THREE.Group;
     reticle?: THREE.Mesh;
@@ -68,7 +72,7 @@ export const Interactive3DLab: React.FC<Props> = ({
     currentMesh?: THREE.Mesh;
   }>({});
 
-  // Build procedural geometries when needed
+  // Geometrías procedurales del catálogo
   const createProceduralGeometry = (mode: LabMode): THREE.BufferGeometry => {
     if (mode === 'procedural-octagon') {
       const geo = new THREE.CylinderGeometry(0.16, 0.13, 0.32, 8);
@@ -82,57 +86,50 @@ export const Interactive3DLab: React.FC<Props> = ({
       geo.translate(0, 0.17, 0);
       return geo;
     }
-    const geo = new THREE.CylinderGeometry(0.16, 0.16, 0.30, 64);
+    // Procedural cylinder (CR-001)
+    const geo = new THREE.CylinderGeometry(0.15, 0.15, 0.35, 64);
     geo.computeVertexNormals();
-    geo.translate(0, 0.15, 0);
+    geo.translate(0, 0.175, 0);
     return geo;
   };
 
-  // Initialize Three.js WebGL + WebXR Scene
+  // Inicialización de Three.js & WebXR
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, (canvas.clientWidth || 800) / (canvas.clientHeight || 500), 0.01, 25);
-    camera.position.set(0.42, 0.38, 0.68);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 30);
+    camera.position.set(0, 0.42, 0.85);
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(canvas.clientWidth || 800, canvas.clientHeight || 500, false);
     renderer.xr.enabled = true;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.1;
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0.15, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.1;
+    controls.maxDistance = 2.2;
+    controls.minDistance = 0.35;
     controls.maxPolarAngle = Math.PI / 2 + 0.08;
-    controls.minDistance = 0.32;
-    controls.maxDistance = 1.8;
 
-    // Studio Lighting
-    scene.add(new THREE.AmbientLight(0xf1f0eb, 1.15));
+    // Iluminación arquitectónica
+    scene.add(new THREE.AmbientLight(0xffffff, 1.3));
 
-    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.8);
-    sunLight.position.set(1.5, 2.6, 1.5);
-    sunLight.castShadow = true;
+    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
+    sunLight.position.set(2.2, 3.8, 2.2);
     scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0xd5c8b5, 0.85);
-    fillLight.position.set(-1.8, 0.8, -1.4);
+    const fillLight = new THREE.DirectionalLight(0xd5dbdb, 0.8);
+    fillLight.position.set(-2, -1, -2);
     scene.add(fillLight);
-
-    // Architectural Pedestal Grid in 3D Preview
-    const gridHelper = new THREE.GridHelper(1.2, 12, 0xb6a17e, 0x292b2b);
-    (gridHelper.material as THREE.Material).opacity = 0.25;
-    (gridHelper.material as THREE.Material).transparent = true;
-    scene.add(gridHelper);
 
     const previewGroup = new THREE.Group();
     scene.add(previewGroup);
@@ -140,20 +137,42 @@ export const Interactive3DLab: React.FC<Props> = ({
     const arGroup = new THREE.Group();
     scene.add(arGroup);
 
-    // WebXR Reticle
-    const retGeo = new THREE.RingGeometry(0.09, 0.115, 36).rotateX(-Math.PI / 2);
-    const retMat = new THREE.MeshBasicMaterial({ color: 0xb6a17e, side: THREE.DoubleSide });
-    const reticle = new THREE.Mesh(retGeo, retMat);
+    // Retícula WebXR para detección de superficies reales
+    const reticleGeo = new THREE.RingGeometry(0.09, 0.11, 32).rotateX(-Math.PI / 2);
+    const reticleMat = new THREE.MeshBasicMaterial({ color: 0xb6a17e, side: THREE.DoubleSide });
+    const reticle = new THREE.Mesh(reticleGeo, reticleMat);
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
+
+    // Sombra de contacto en el piso virtual
+    const shadowGeo = new THREE.PlaneGeometry(0.65, 0.65);
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = 128;
+    shadowCanvas.height = 128;
+    const ctx = shadowCanvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(17, 19, 19, 0.45)');
+      grad.addColorStop(0.5, 'rgba(17, 19, 19, 0.15)');
+      grad.addColorStop(1, 'rgba(17, 19, 19, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    const shadowTex = new THREE.CanvasTexture(shadowCanvas);
+    const shadowMesh = new THREE.Mesh(
+      shadowGeo,
+      new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })
+    );
+    shadowMesh.rotation.x = -Math.PI / 2;
+    shadowMesh.position.y = -0.002;
+    previewGroup.add(shadowMesh);
 
     threeRef.current = {
       renderer,
       scene,
       camera,
       controls,
-      sunLight,
       previewGroup,
       arGroup,
       reticle,
@@ -200,24 +219,60 @@ export const Interactive3DLab: React.FC<Props> = ({
     return () => {
       resizeObserver.disconnect();
       renderer.setAnimationLoop(null);
-      renderer.dispose();
       controls.dispose();
+
+      // Limpieza explícita de memoria GPU (geometrías, materiales y texturas)
+      const disposeHierarchy = (group: THREE.Object3D) => {
+        group.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.isMesh) {
+            mesh.geometry?.dispose();
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m) => m.dispose());
+            } else {
+              mesh.material?.dispose();
+            }
+          }
+        });
+      };
+
+      disposeHierarchy(previewGroup);
+      disposeHierarchy(arGroup);
+      reticleGeo.dispose();
+      reticleMat.dispose();
+      shadowGeo.dispose();
+      shadowTex.dispose();
+      renderer.dispose();
     };
   }, [arActive]);
 
-  // Load Geometry (STL or Procedural)
+  // Carga de geometría (STL o Procedural)
   useEffect(() => {
     const { previewGroup } = threeRef.current;
     if (!previewGroup) return;
 
     const mountGeometry = (geometry: THREE.BufferGeometry) => {
       threeRef.current.currentGeometry = geometry;
-      previewGroup.clear();
+
+      // Limpiar y liberar memoria GPU de mallas previas excepto la sombra base
+      const meshesToRemove = previewGroup.children.filter((child) => child.type === 'Mesh' && child.position.y > 0);
+      meshesToRemove.forEach((m) => {
+        const mesh = m as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((mat) => mat.dispose());
+        } else {
+          mesh.material?.dispose();
+        }
+        previewGroup.remove(mesh);
+      });
+
       const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(activeColor),
-        roughness,
+        roughness: 0.85,
         metalness: 0.05,
       });
+
       const mesh = new THREE.Mesh(geometry, mat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -254,31 +309,23 @@ export const Interactive3DLab: React.FC<Props> = ({
     }
   }, [labMode, selectedStlUrl]);
 
-  // Live update color, roughness, and scale
+  // Actualizar color y escala reactivamente
   useEffect(() => {
     const mesh = threeRef.current.currentMesh;
     if (!mesh) return;
     const mat = mesh.material as THREE.MeshStandardMaterial;
     mat.color.set(activeColor);
-    mat.roughness = roughness;
-    const scaleFactor = selectedScale === 'S' ? 0.82 : selectedScale === 'L' ? 1.22 : 1.0;
+    const scaleFactor = selectedScale === 'S' ? 0.82 : selectedScale === 'L' ? 1.25 : 1.0;
     mesh.scale.setScalar(scaleFactor);
-  }, [activeColor, roughness, selectedScale]);
+  }, [activeColor, selectedScale]);
 
-  // Live update Sun Azimuth Angle
-  useEffect(() => {
-    const sun = threeRef.current.sunLight;
-    if (!sun) return;
-    const rad = (sunAngle * Math.PI) / 180;
-    sun.position.set(Math.cos(rad) * 2.4, 2.4, Math.sin(rad) * 2.4);
-  }, [sunAngle]);
-
+  // Flujo WebXR (Realidad Aumentada móvil con hit-test y anclaje)
   const startWebXR = async () => {
     setArFeedback(null);
     const nav = navigator as any;
     if (!nav.xr) {
       setArFeedback(
-        'WebXR requiere Chrome en Android (con ARCore) bajo conexión HTTPS. En escritorio puedes inspeccionar la pieza en el visor 3D interactivo.'
+        'La Realidad Aumentada requiere Google Chrome en Android (con soporte ARCore) bajo conexión HTTPS. En este dispositivo puedes rotar e inspeccionar libremente el modelo 3D.'
       );
       return;
     }
@@ -311,9 +358,10 @@ export const Interactive3DLab: React.FC<Props> = ({
 
         const frame = event.frame;
         const refSpace = renderer.xr.getReferenceSpace();
+
         const mat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(activeColor),
-          roughness,
+          roughness: 0.85,
           metalness: 0.05,
         });
         const model = new THREE.Mesh(threeRef.current.currentGeometry, mat);
@@ -326,6 +374,7 @@ export const Interactive3DLab: React.FC<Props> = ({
         model.position.copy(pos);
         model.quaternion.copy(quat);
 
+        // Anclar en el espacio del mundo real (XRAnchor)
         if (frame && 'createAnchor' in frame) {
           try {
             const transform = new (window as any).XRRigidTransform(
@@ -334,8 +383,8 @@ export const Interactive3DLab: React.FC<Props> = ({
             );
             const anchor = await frame.createAnchor(transform, refSpace);
             model.userData.anchor = anchor;
-          } catch {
-            // fallback to fixed pose
+          } catch (e) {
+            console.warn('createAnchor omitido:', e);
           }
         }
 
@@ -344,8 +393,9 @@ export const Interactive3DLab: React.FC<Props> = ({
           arGroup.add(model);
           threeRef.current.placedAnchor = model;
         }
+
         reticle.visible = false;
-        setArGuide('Matera anclada en tu espacio. Toca otra superficie para reubicarla.');
+        setArGuide('Matera anclada en el espacio. Camina a su alrededor o toca nuevamente para reubicarla.');
       });
 
       session.addEventListener('end', () => {
@@ -355,11 +405,12 @@ export const Interactive3DLab: React.FC<Props> = ({
         if (previewGroup) previewGroup.visible = true;
         if (arGroup) arGroup.visible = false;
         if (reticle) reticle.visible = false;
+        setArGuide('Apunta al suelo para detectar superficies y toca para anclar la matera');
       });
 
       setArActive(true);
     } catch (err: any) {
-      setArFeedback(`No fue posible iniciar sesión AR: ${err.message || 'Dispositivo no compatible'}`);
+      setArFeedback(`No fue posible iniciar la sesión AR: ${err.message || 'Dispositivo no compatible'}`);
     }
   };
 
@@ -369,7 +420,7 @@ export const Interactive3DLab: React.FC<Props> = ({
     }
   };
 
-  const selectedStlObj = stlMateras.find(m => m.archivoUrl === selectedStlUrl);
+  const selectedStlObj = stlMateras.find((m) => m.archivoUrl === selectedStlUrl);
   const currentBasePrice =
     labMode === 'stl-model' && selectedStlObj && selectedStlObj.precio > 0
       ? selectedStlObj.precio
@@ -379,174 +430,198 @@ export const Interactive3DLab: React.FC<Props> = ({
       ? 290000
       : 185000;
 
-  const scaleMultiplier = selectedScale === 'S' ? 0.8 : selectedScale === 'L' ? 1.55 : 1;
+  const scaleMultiplier = selectedScale === 'S' ? 0.8 : selectedScale === 'L' ? 1.45 : 1;
   const computedPrice = Math.round((currentBasePrice * scaleMultiplier) / 1000) * 1000;
 
+  const activeModelTitle =
+    labMode === 'stl-model' && selectedStlObj
+      ? selectedStlObj.nombre
+      : labMode === 'procedural-octagon'
+      ? 'Prisma Octagonal (CR-002)'
+      : labMode === 'procedural-cone'
+      ? 'Cono Truncado (CR-003)'
+      : 'Cilindro Puro (CR-001)';
+
+  const handleOrderWhatsApp = () => {
+    const text = `Hola CRUDA, estoy interesado en adquirir/cotizar esta pieza del Visualizador 3D:
+• Modelo: ${activeModelTitle}
+• Acabado: ${activeFinishName} (${activeColor})
+• Escala: ${selectedScale}
+• Precio estimado: $${computedPrice.toLocaleString('es-CO')} COP
+¿Podrían confirmarme disponibilidad y tiempo de entrega?`;
+    window.open(`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   return (
-    <section id="laboratorio-3d" className="py-24 bg-[#111313] text-[#F1F0EB] border-y border-[#292B2B] relative overflow-hidden">
+    <section id="visualizador-3d" className="py-20 bg-[#161818] text-[#F1F0EB] border-t border-[#292B2B]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+        {/* Encabezado de la sección */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 border border-[#B6A17E]/40 bg-[#B6A17E]/10 text-[#B6A17E] font-mono text-[11px] uppercase tracking-widest mb-4">
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Laboratorio Interactivo 3D · STL · WebXR AR</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#242626] border border-[#3A3D3D] text-[#B6A17E] font-mono text-[10px] uppercase tracking-widest mb-3">
+              <Sparkles className="w-3 h-3" aria-hidden="true" />
+              <span>Visualizador 3D Interactivo & AR</span>
             </div>
-            <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl tracking-wide text-[#F1F0EB]">
-              GEOMETRÍA, LUZ Y ESCALA EN VIVO
+            <h2 className="font-serif text-3xl sm:text-4xl text-[#F1F0EB] tracking-wide">
+              EXPLORA EN 3D Y REALIDAD AUMENTADA
             </h2>
           </div>
-          <p className="text-sm text-[#A7A7A2] max-w-md font-light leading-relaxed">
-            Inspecciona en 360° nuestras matrices monolíticas o tus archivos <code className="text-[#B6A17E]">.STL</code> cargados al servidor. Simula la incidencia solar sobre el concreto UHPC o proyéctalo en tu espacio con Realidad Aumentada.
+          <p className="text-xs sm:text-sm text-[#A7A7A2] max-w-md font-light leading-relaxed">
+            Rota 360°, haz zoom, cambia el color mineral en tiempo real o proyecta la pieza en tu espacio físico con la cámara del celular.
           </p>
         </div>
 
-        {/* Main 3D Studio Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 border border-[#292B2B] bg-[#181A1A] shadow-sculptural">
-          {/* Left: Interactive WebGL Canvas (7 cols) */}
-          <div className="lg:col-span-7 relative min-h-[440px] sm:min-h-[540px] flex flex-col justify-between bg-concrete-dark border-b lg:border-b-0 lg:border-r border-[#292B2B]">
-            {/* Top HUD Overlay */}
-            <div className="p-4 flex flex-wrap items-center justify-between gap-2 z-10 pointer-events-none">
-              <div className="bg-[#111313]/85 backdrop-blur px-3 py-1.5 border border-[#292B2B] font-mono text-[11px] text-[#A7A7A2]">
-                MOTOR: <span className="text-[#F1F0EB]">THREE.JS WEBGL2 + STLLOADER</span>
-              </div>
-              <div className="bg-[#111313]/85 backdrop-blur px-3 py-1.5 border border-[#B6A17E]/40 font-mono text-[11px] text-[#B6A17E]">
-                ESCALA {selectedScale} · LUZ {sunAngle}°
-              </div>
+        {/* Contenedor principal de la experiencia 3D */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 border border-[#2B2D2D] bg-[#111313] overflow-hidden">
+          {/* Columna Izquierda: Canvas WebGL 3D (7 cols) */}
+          <div className="lg:col-span-7 relative min-h-[380px] sm:min-h-[480px] flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[#2B2D2D] bg-gradient-to-b from-[#161818] to-[#0F1010]">
+            {/* HUD Superior */}
+            <div className="p-4 flex items-center justify-between z-10 pointer-events-none">
+              <span className="font-mono text-[10px] tracking-wider uppercase text-[#A7A7A2] bg-[#111313]/70 px-2.5 py-1 border border-[#2B2D2D]">
+                {activeModelTitle}
+              </span>
+              <span className="font-mono text-[10px] tracking-wider uppercase text-[#B6A17E] bg-[#111313]/70 px-2.5 py-1 border border-[#2B2D2D]">
+                Escala {selectedScale}
+              </span>
             </div>
 
-            {/* Canvas */}
+            {/* Canvas Three.js */}
             <div className="absolute inset-0">
               <canvas ref={canvasRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
             </div>
 
-            {/* Bottom Canvas Bar */}
-            <div className="p-4 flex flex-wrap items-center justify-between gap-3 z-10 bg-gradient-to-t from-[#111313] via-[#111313]/80 to-transparent">
-              <span className="font-mono text-[11px] text-[#A7A7A2]">
-                Arrastra para orbitar · Rueda o pellizca para zoom
+            {/* Barra Inferior del Canvas */}
+            <div className="p-4 flex flex-wrap items-center justify-between gap-2 z-10 bg-gradient-to-t from-[#111313] via-[#111313]/80 to-transparent">
+              <span className="font-mono text-[10px] text-[#A7A7A2]">
+                Arrastra para rotar · Rueda o pellizca para zoom
               </span>
+
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setSunAngle(45);
-                    setRoughness(0.84);
+                    const camera = threeRef.current.camera;
+                    if (camera) {
+                      camera.position.set(0, 0.42, 0.85);
+                      camera.lookAt(0, 0.17, 0);
+                    }
                   }}
-                  className="px-3 py-1.5 bg-[#181A1A] hover:bg-[#292B2B] border border-[#292B2B] text-xs font-mono uppercase tracking-wider text-[#F1F0EB] flex items-center gap-1.5 transition-colors"
+                  title="Restablecer vista"
+                  className="p-2 bg-[#1A1C1C] hover:bg-[#242626] border border-[#2B2D2D] text-[#A7A7A2] hover:text-[#F1F0EB] transition-colors"
+                  aria-label="Restablecer posición de cámara"
                 >
                   <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Reset</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={startWebXR}
-                  className="px-4 py-1.5 bg-[#B6A17E] hover:bg-[#c8b391] text-[#111313] font-mono text-xs uppercase tracking-widest font-bold flex items-center gap-2 transition-colors"
+                  className="px-3.5 py-2 bg-[#B6A17E] hover:bg-[#C5B18E] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-semibold flex items-center gap-1.5 transition-colors"
                 >
                   <Camera className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Proyectar en AR</span>
+                  <span>Ver en AR</span>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Right: Parametric Control Panel (5 cols) */}
+          {/* Columna Derecha: Panel de Configuración (5 cols) */}
           <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-between space-y-6 bg-[#161818]">
             <div className="space-y-6">
-              {/* 1. Geometry / STL Selector */}
+              {/* 1. Selector de Modelo */}
               <div>
-                <span className="block font-mono text-[11px] uppercase tracking-widest text-[#B6A17E] mb-2">
-                  01 · Matriz Geométrica o Modelo .STL
-                </span>
+                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#B6A17E] mb-2.5">
+                  1. Modelo a Visualizar
+                </label>
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   <button
                     type="button"
                     onClick={() => setLabMode('procedural-cylinder')}
-                    className={`px-3 py-2.5 text-left font-mono text-xs border transition-all ${
+                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
                       labMode === 'procedural-cylinder'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/15 text-[#F1F0EB]'
-                        : 'border-[#292B2B] bg-[#111313] text-[#A7A7A2] hover:border-[#A7A7A2]'
+                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
+                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
                     }`}
                   >
-                    CR-001 · Cilindro
+                    Cilindro Puro
                   </button>
                   <button
                     type="button"
                     onClick={() => setLabMode('procedural-octagon')}
-                    className={`px-3 py-2.5 text-left font-mono text-xs border transition-all ${
+                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
                       labMode === 'procedural-octagon'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/15 text-[#F1F0EB]'
-                        : 'border-[#292B2B] bg-[#111313] text-[#A7A7A2] hover:border-[#A7A7A2]'
+                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
+                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
                     }`}
                   >
-                    CR-002 · Octágono
+                    Prisma Octagonal
                   </button>
                   <button
                     type="button"
                     onClick={() => setLabMode('procedural-cone')}
-                    className={`px-3 py-2.5 text-left font-mono text-xs border transition-all ${
+                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
                       labMode === 'procedural-cone'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/15 text-[#F1F0EB]'
-                        : 'border-[#292B2B] bg-[#111313] text-[#A7A7A2] hover:border-[#A7A7A2]'
+                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
+                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
                     }`}
                   >
-                    CR-003 · Cono
+                    Cono Truncado
                   </button>
                   <button
                     type="button"
                     onClick={() => setLabMode('stl-model')}
-                    className={`px-3 py-2.5 text-left font-mono text-xs border transition-all ${
+                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
                       labMode === 'stl-model'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/15 text-[#F1F0EB]'
-                        : 'border-[#292B2B] bg-[#111313] text-[#A7A7A2] hover:border-[#A7A7A2]'
+                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
+                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
                     }`}
                   >
-                    Archivo .STL ({stlMateras.length})
+                    Archivos .STL ({stlMateras.length})
                   </button>
                 </div>
 
                 {labMode === 'stl-model' && (
-                  <div className="p-3 bg-[#111313] border border-[#292B2B] space-y-2">
-                    <label htmlFor="stl-lab-select" className="block font-mono text-[10px] uppercase tracking-wider text-[#A7A7A2]">
-                      Modelos .STL en Servidor (/uploads):
-                    </label>
-                    <div className="flex gap-2">
-                      <select
-                        id="stl-lab-select"
-                        value={selectedStlUrl}
-                        onChange={(e) => onSelectStlUrl(e.target.value)}
-                        className="flex-1 bg-[#181A1A] border border-[#292B2B] text-xs font-mono px-2.5 py-2 text-[#F1F0EB]"
-                      >
-                        {stlMateras.length === 0 ? (
-                          <option value="">Sin archivos STL cargados</option>
-                        ) : (
-                          stlMateras.map((m) => (
-                            <option key={m.id} value={m.archivoUrl}>
-                              {m.nombre} — ${m.precio.toLocaleString('es-CO')} COP
-                            </option>
-                          ))
-                        )}
-                      </select>
+                  <div className="p-3 bg-[#111313] border border-[#2B2D2D] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-[#A7A7A2]">
+                        Selecciona archivo STL:
+                      </span>
                       <button
                         type="button"
                         onClick={onOpenAdminModal}
-                        className="px-3 py-2 bg-[#292B2B] hover:bg-[#B6A17E] hover:text-[#111313] text-xs font-mono uppercase tracking-wider transition-colors"
+                        className="font-mono text-[10px] text-[#B6A17E] hover:underline"
                       >
-                        + Subir STL
+                        + Subir nuevo STL
                       </button>
                     </div>
+                    <select
+                      value={selectedStlUrl}
+                      onChange={(e) => onSelectStlUrl(e.target.value)}
+                      className="w-full bg-[#1A1C1C] border border-[#2B2D2D] text-xs font-mono p-2 text-[#F1F0EB] outline-none focus:border-[#B6A17E]"
+                    >
+                      {stlMateras.length === 0 ? (
+                        <option value="">No hay archivos STL cargados</option>
+                      ) : (
+                        stlMateras.map((m) => (
+                          <option key={m.id} value={m.archivoUrl}>
+                            {m.nombre} — ${m.precio.toLocaleString('es-CO')} COP
+                          </option>
+                        ))
+                      )}
+                    </select>
                   </div>
                 )}
               </div>
 
-              {/* 2. Mineral Finish & Pigment */}
+              {/* 2. Acabado Mineral y Color */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-[11px] uppercase tracking-widest text-[#B6A17E]">
-                    02 · Pigmentación Mineral:
-                  </span>
-                  <span className="font-mono text-xs text-[#F1F0EB]">{activeFinishName}</span>
+                  <label className="font-mono text-[10px] uppercase tracking-widest text-[#B6A17E]">
+                    2. Acabado Mineral
+                  </label>
+                  <span className="font-mono text-xs text-[#EAE5DC]">{activeFinishName}</span>
                 </div>
-                <div className="grid grid-cols-6 gap-2 items-center">
+                <div className="grid grid-cols-6 gap-2">
                   {FINISH_COLORS.map((c) => (
                     <button
                       key={c.id}
@@ -555,38 +630,42 @@ export const Interactive3DLab: React.FC<Props> = ({
                         setActiveColor(c.hex);
                         setActiveFinishName(c.name);
                       }}
-                      aria-label={`Seleccionar pigmento ${c.name}`}
-                      className={`h-9 border transition-transform ${
+                      title={c.name}
+                      aria-label={`Seleccionar acabado ${c.name}`}
+                      className={`h-9 border transition-all flex items-center justify-center ${
                         activeColor.toLowerCase() === c.hex.toLowerCase()
-                          ? 'border-[#B6A17E] scale-105 ring-2 ring-[#B6A17E]/40'
-                          : 'border-[#292B2B] opacity-80 hover:opacity-100'
+                          ? 'border-[#B6A17E] ring-2 ring-[#B6A17E]/40 scale-105'
+                          : 'border-[#2B2D2D] opacity-80 hover:opacity-100'
                       }`}
                       style={{ backgroundColor: c.hex }}
-                    />
+                    >
+                      {activeColor.toLowerCase() === c.hex.toLowerCase() && (
+                        <Check className="w-3.5 h-3.5 text-[#111313]" />
+                      )}
+                    </button>
                   ))}
                 </div>
-                <div className="mt-2.5 flex items-center justify-between text-xs">
-                  <label htmlFor="custom-hex-picker" className="font-mono text-[10px] uppercase text-[#A7A7A2]">
-                    Pigmento especial a medida (HEX):
-                  </label>
+
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <span className="font-mono text-[10px] uppercase text-[#A7A7A2]">Color libre personalizado:</span>
                   <input
-                    id="custom-hex-picker"
                     type="color"
                     value={activeColor}
                     onChange={(e) => {
                       setActiveColor(e.target.value);
-                      setActiveFinishName(`Pigmento Especial ${e.target.value.toUpperCase()}`);
+                      setActiveFinishName(`Tono Personalizado ${e.target.value.toUpperCase()}`);
                     }}
-                    className="w-8 h-7 bg-transparent border border-[#292B2B] cursor-pointer"
+                    className="w-7 h-7 bg-transparent border border-[#2B2D2D] cursor-pointer"
+                    title="Elegir tono personalizado"
                   />
                 </div>
               </div>
 
-              {/* 3. Scale Selector (S / M / L) */}
+              {/* 3. Escala */}
               <div>
-                <span className="block font-mono text-[11px] uppercase tracking-widest text-[#B6A17E] mb-2">
-                  03 · Escala Arquitectónica (D6 Variantes)
-                </span>
+                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#B6A17E] mb-2">
+                  3. Escala / Dimensiones
+                </label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['S', 'M', 'L'] as const).map((sz) => (
                     <button
@@ -596,7 +675,7 @@ export const Interactive3DLab: React.FC<Props> = ({
                       className={`py-2 px-3 border font-mono text-xs uppercase transition-all ${
                         selectedScale === sz
                           ? 'border-[#B6A17E] bg-[#B6A17E] text-[#111313] font-bold'
-                          : 'border-[#292B2B] bg-[#111313] text-[#A7A7A2] hover:border-[#A7A7A2]'
+                          : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
                       }`}
                     >
                       Escala {sz}
@@ -604,108 +683,72 @@ export const Interactive3DLab: React.FC<Props> = ({
                   ))}
                 </div>
               </div>
-
-              {/* 4. Solar Incidence & Texture Sliders */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                <div>
-                  <label htmlFor="sun-angle-range" className="flex items-center justify-between font-mono text-[10px] uppercase text-[#A7A7A2] mb-1">
-                    <span className="flex items-center gap-1">
-                      <Sun className="w-3 h-3 text-[#B6A17E]" aria-hidden="true" /> Incidencia Solar
-                    </span>
-                    <span>{sunAngle}°</span>
-                  </label>
-                  <input
-                    id="sun-angle-range"
-                    type="range"
-                    min="0"
-                    max="360"
-                    value={sunAngle}
-                    onChange={(e) => setSunAngle(Number(e.target.value))}
-                    className="w-full accent-[#B6A17E] cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="roughness-range" className="flex items-center justify-between font-mono text-[10px] uppercase text-[#A7A7A2] mb-1">
-                    <span className="flex items-center gap-1">
-                      <Layers className="w-3 h-3 text-[#B6A17E]" aria-hidden="true" /> Poro / Mate
-                    </span>
-                    <span>{Math.round(roughness * 100)}%</span>
-                  </label>
-                  <input
-                    id="roughness-range"
-                    type="range"
-                    min="0.3"
-                    max="0.98"
-                    step="0.02"
-                    value={roughness}
-                    onChange={(e) => setRoughness(Number(e.target.value))}
-                    className="w-full accent-[#B6A17E] cursor-pointer"
-                  />
-                </div>
-              </div>
             </div>
 
             {arFeedback && (
-              <div role="status" className="p-3 bg-[#111313] border border-[#B6A17E]/50 text-xs font-mono text-[#D5C8B5]">
+              <div role="status" className="p-3 bg-[#1A1C1C] border border-[#B6A17E]/40 text-xs font-mono text-[#D5C8B5]">
                 {arFeedback}
               </div>
             )}
 
-            {/* Price & Add to Cart Action */}
-            <div className="pt-4 border-t border-[#292B2B] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="block font-mono text-[10px] uppercase text-[#A7A7A2]">
-                  Valor Estimado (IVA 19% inc.)
-                </span>
+            {/* Acciones de compra / cotización */}
+            <div className="pt-4 border-t border-[#2B2D2D] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase text-[#A7A7A2]">Precio estimado</span>
                 <span className="font-serif text-2xl text-[#F1F0EB]">
                   ${computedPrice.toLocaleString('es-CO')} <span className="text-xs font-mono text-[#B6A17E]">COP</span>
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  onAddCustomToCart({
-                    name:
-                      labMode === 'stl-model' && selectedStlObj
-                        ? `Matera STL: ${selectedStlObj.nombre}`
-                        : labMode === 'procedural-octagon'
-                        ? 'CR-002 Prisma Facetado'
-                        : labMode === 'procedural-cone'
-                        ? 'CR-003 Cono Terrazo'
-                        : 'CR-001 Cilindro Puro',
-                    sku: `LAB-${selectedScale}-${activeColor.replace('#', '').toUpperCase()}`,
-                    priceCop: computedPrice,
-                    colorHex: activeColor,
-                    finishName: activeFinishName,
-                    size: selectedScale,
-                    isCustomStl: labMode === 'stl-model',
-                  })
-                }
-                className="px-6 py-3.5 bg-[#B6A17E] hover:bg-[#c8b391] text-[#111313] font-mono text-xs uppercase tracking-widest font-bold flex items-center justify-center gap-2 transition-colors"
-              >
-                <ShoppingBag className="w-4 h-4" aria-hidden="true" />
-                <span>Agregar Configuración</span>
-              </button>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleOrderWhatsApp}
+                  className="py-3 px-4 bg-[#25D366] hover:bg-[#20ba5a] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-bold flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <MessageSquare className="w-4 h-4" aria-hidden="true" />
+                  <span>Pedir por WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAddCustomToCart({
+                      name: activeModelTitle,
+                      sku: `LAB-${selectedScale}-${activeColor.replace('#', '').toUpperCase()}`,
+                      priceCop: computedPrice,
+                      colorHex: activeColor,
+                      finishName: activeFinishName,
+                      size: selectedScale,
+                      isCustomStl: labMode === 'stl-model',
+                    })
+                  }
+                  className="py-3 px-4 bg-[#B6A17E] hover:bg-[#C5B18E] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-bold flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <ShoppingBag className="w-4 h-4" aria-hidden="true" />
+                  <span>Añadir al Carrito</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Native WebXR DOM Overlay when inside mobile AR */}
+      {/* Capa nativa de overlay durante Realidad Aumentada (WebXR) */}
       <div
         id="cruda-ar-dom-overlay"
         className={`fixed inset-0 pointer-events-none z-50 flex flex-col justify-between p-6 ${
           arActive ? 'block' : 'hidden'
         }`}
       >
-        <div className="pointer-events-auto bg-[#111313]/85 backdrop-blur px-4 py-2.5 border border-[#B6A17E]/40 text-center max-w-md mx-auto">
+        <div className="pointer-events-auto bg-[#111313]/90 backdrop-blur px-4 py-2.5 border border-[#B6A17E]/40 text-center max-w-md mx-auto">
           <p className="font-mono text-xs text-[#F1F0EB]">{arGuide}</p>
         </div>
         <div className="pointer-events-auto flex justify-center">
           <button
             type="button"
             onClick={exitWebXR}
-            className="bg-red-900/90 hover:bg-red-800 text-white font-mono text-xs uppercase tracking-widest px-6 py-3 border border-white/30 backdrop-blur"
+            className="bg-red-900/90 hover:bg-red-800 text-white font-mono text-xs uppercase tracking-widest px-6 py-3 border border-white/30 backdrop-blur shadow-2xl"
           >
             Salir de Realidad Aumentada
           </button>

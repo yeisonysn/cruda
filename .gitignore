@@ -1,9 +1,12 @@
+node_modules
 node_modules/
+node_modules.nosync/
 dist/
 dist-server/
 .env
 server/uploads/*
 !server/uploads/.gitkeep
 *.local
+*.log
 .DS_Store
 

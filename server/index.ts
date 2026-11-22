@@ -14,30 +14,49 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'cruda2024admin';
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '1234';
 const JWT_SECRET = process.env.JWT_SECRET || 'cruda_secret_change_me';
 
-// Rutas de datos
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const DATA_DIR = path.join(__dirname, 'data');
+// Rutas de datos (compatible con disco local y Vercel Serverless /tmp)
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const STATIC_UPLOADS_DIR = path.join(__dirname, 'uploads');
+const STATIC_DATA_DIR = path.join(__dirname, 'data');
+const UPLOADS_DIR = IS_VERCEL ? '/tmp/cruda-uploads' : STATIC_UPLOADS_DIR;
+const DATA_DIR = IS_VERCEL ? '/tmp/cruda-data' : STATIC_DATA_DIR;
 const DATA_FILE = path.join(DATA_DIR, 'materas.json');
 const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
 const CONTACT_FILE = path.join(DATA_DIR, 'contacts.json');
 
 // Asegurar directorios
 [UPLOADS_DIR, DATA_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // Ignorar en entornos de solo lectura
+  }
 });
 
-// Inicializar archivos JSON si no existen
-if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '[]', 'utf-8');
-if (!fs.existsSync(ORDERS_FILE)) fs.writeFileSync(ORDERS_FILE, '[]', 'utf-8');
-if (!fs.existsSync(CONTACT_FILE)) fs.writeFileSync(CONTACT_FILE, '[]', 'utf-8');
+// Inicializar archivos JSON si no existen (copiando semilla en Vercel si existe)
+const ensureJsonSeed = (targetFile: string, seedFileName: string) => {
+  try {
+    if (!fs.existsSync(targetFile)) {
+      const seedPath = path.join(STATIC_DATA_DIR, seedFileName);
+      const initialContent = fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf-8') : '[]';
+      fs.writeFileSync(targetFile, initialContent, 'utf-8');
+    }
+  } catch {
+    // Fallback en memoria si el filesystem está restringido
+  }
+};
+ensureJsonSeed(DATA_FILE, 'materas.json');
+ensureJsonSeed(ORDERS_FILE, 'orders.json');
+ensureJsonSeed(CONTACT_FILE, 'contacts.json');
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
-app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR), express.static(STATIC_UPLOADS_DIR));
 
 // Multer para subida de STL (máximo 20 MB)
 const storage = multer.diskStorage({
@@ -196,13 +215,14 @@ app.get('/api/health', (_req, res) => {
 // ─── Auth (M04 Preliminar + Compatibilidad) ─────────────────────────────────
 
 app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body as { password?: string };
-  if (!password || password !== ADMIN_PASSWORD) {
-    res.status(401).json({ error: 'Contraseña incorrecta. Verifica tus credenciales.' });
+  const { username, password } = req.body as { username?: string; password?: string };
+  const validUser = !username || username.trim().toLowerCase() === ADMIN_USER.toLowerCase();
+  if (!validUser || !password || password !== ADMIN_PASSWORD) {
+    res.status(401).json({ error: 'Usuario o contraseña incorrectos. Verifica tus credenciales (admin / 1234).' });
     return;
   }
-  const token = jwt.sign({ role: 'ADMIN', storeId: 'store_cruda_main' }, JWT_SECRET, { expiresIn: '8h' });
-  res.json({ token, role: 'ADMIN', storeId: 'store_cruda_main', mensaje: 'Sesión iniciada correctamente.' });
+  const token = jwt.sign({ role: 'ADMIN', username: ADMIN_USER, storeId: 'store_cruda_main' }, JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token, role: 'ADMIN', username: ADMIN_USER, storeId: 'store_cruda_main', mensaje: 'Sesión iniciada correctamente.' });
 });
 
 // ─── Catálogo & Materas STL (M06) ───────────────────────────────────────────
@@ -343,6 +363,25 @@ const SHIPPING_RATES: Record<string, { label: string; cost: number }> = {
   PICKUP: { label: 'Recogida en Taller (Bogotá / Medellín)', cost: 0 },
 };
 
+// Catálogo oficial de precios en el servidor para prevenir manipulación desde el cliente (Price Tampering)
+const OFFICIAL_BASE_PRICES: Record<string, Record<string, number>> = {
+  'CR-001': { S: 145000, M: 185000, L: 265000 },
+  'CR-002': { S: 185000, M: 235000, L: 330000 },
+  'CR-003': { S: 225000, M: 290000, L: 410000 },
+  'CR-004': { S: 240000, M: 320000, L: 440000 },
+  'CR-005': { S: 310000, M: 420000, L: 580000 },
+  'CR-006': { S: 195000, M: 255000, L: 355000 },
+};
+
+const FINISH_SURCHARGES: Record<string, number> = {
+  'Gris Cemento Puro': 0,
+  'Blanco Mineral Calizo': 15000,
+  'Grafito Brutalista': 20000,
+  'Ocre Desierto': 18000,
+  'Verde Salvia': 22000,
+  'Terracota Fuego': 18000,
+};
+
 app.post('/api/orders', (req, res) => {
   const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
   const orders = readOrders();
@@ -355,16 +394,17 @@ app.post('/api/orders', (req, res) => {
     }
   }
 
-  const { customer, items, shippingZone, paymentMethod, simulatePaid } = req.body as {
+  const { customer, items, shippingZone, shippingMethod, paymentMethod, simulatePaid } = req.body as {
     customer?: OrderRecord['customer'];
     items?: OrderItemRecord[];
     shippingZone?: string;
+    shippingMethod?: string;
     paymentMethod?: string;
     simulatePaid?: boolean;
   };
 
   if (!customer?.fullName || !customer?.email || !customer?.phone || !customer?.city || !customer?.address) {
-    res.status(400).json({ error: 'Datos de contacto y dirección de entrega incompletos.' });
+    res.status(400).json({ error: 'Datos de contacto (nombre, correo, celular, ciudad) y dirección de entrega son obligatorios.' });
     return;
   }
 
@@ -378,27 +418,51 @@ app.post('/api/orders', (req, res) => {
     return;
   }
 
-  // Validar e calcular precios en el servidor (Regla 8 y 9)
+  const registeredStlMateras = readMateras();
+
+  // Validar y calcular precios autoritativamente en el servidor
   let subtotal = 0;
   const sanitizedItems: OrderItemRecord[] = items.map(item => {
     const qty = Math.max(1, Math.min(50, Math.round(Number(item.quantity) || 1)));
-    const unitPrice = Math.max(0, Math.round(Number(item.unitPrice) || 0));
-    subtotal += unitPrice * qty;
+    const sizeKey = (['S', 'M', 'L'].includes(String(item.size)) ? String(item.size) : 'M') as 'S' | 'M' | 'L';
+    const skuStr = String(item.sku || 'CR-001');
+    const refMatch = skuStr.match(/^(CR-\d{3})/i)?.[1]?.toUpperCase();
+    const finishName = String(item.finish || 'Gris Cemento Puro');
+    const finishExtra = FINISH_SURCHARGES[finishName] ?? 0;
+
+    let verifiedUnitPrice = 0;
+    if (refMatch && OFFICIAL_BASE_PRICES[refMatch]) {
+      verifiedUnitPrice = OFFICIAL_BASE_PRICES[refMatch][sizeKey] + finishExtra;
+    } else {
+      const stlMatch = registeredStlMateras.find(
+        m => m.id === item.productId || item.name?.toLowerCase().includes(m.nombre.toLowerCase())
+      );
+      if (stlMatch && stlMatch.precio > 0) {
+        const mult = sizeKey === 'S' ? 0.8 : sizeKey === 'L' ? 1.45 : 1;
+        verifiedUnitPrice = Math.round((stlMatch.precio * mult) / 1000) * 1000 + finishExtra;
+      } else {
+        const clientPrice = Math.round(Number(item.unitPrice) || 185000);
+        verifiedUnitPrice = Math.max(115000, clientPrice);
+      }
+    }
+
+    subtotal += verifiedUnitPrice * qty;
     return {
-      productId: String(item.productId),
-      sku: String(item.sku || 'CR-SKU'),
-      name: String(item.name),
-      size: String(item.size || 'M'),
-      finish: String(item.finish || 'Cemento Natural'),
+      productId: String(item.productId || 'cr-001'),
+      sku: skuStr,
+      name: String(item.name || 'Matera CRUDA'),
+      size: sizeKey,
+      finish: finishName,
       colorHex: String(item.colorHex || '#A7A7A2'),
-      unitPrice,
+      unitPrice: verifiedUnitPrice,
       quantity: qty,
       isCustomStl: Boolean(item.isCustomStl),
       leadTimeDays: Number(item.leadTimeDays) || 5,
     };
   });
 
-  const zoneKey = shippingZone && SHIPPING_RATES[shippingZone] ? shippingZone : 'BOGOTA';
+  const requestedZone = shippingZone || shippingMethod || 'BOGOTA';
+  const zoneKey = SHIPPING_RATES[requestedZone] ? requestedZone : 'BOGOTA';
   const baseShipping = SHIPPING_RATES[zoneKey].cost;
   // Envío gratuito en compras superiores a $450.000 COP (excepto nacional lejano)
   const shippingCost = subtotal >= 450000 && zoneKey !== 'NACIONAL' ? 0 : baseShipping;
@@ -517,8 +581,8 @@ app.patch('/api/admin/orders/:id/status', verifyToken, (req, res) => {
 
 app.post('/api/contact', (req, res) => {
   const { name, email, phone, projectType, city, message, acceptedPrivacy } = req.body as Record<string, unknown>;
-  if (!name || !email || !message || !acceptedPrivacy) {
-    res.status(400).json({ error: 'Nombre, correo, mensaje y autorización de datos son obligatorios.' });
+  if (!name || (!email && !phone) || !message) {
+    res.status(400).json({ error: 'Nombre, teléfono o correo y mensaje son obligatorios.' });
     return;
   }
 
@@ -527,12 +591,12 @@ app.post('/api/contact', (req, res) => {
     id: `msg_${Date.now()}`,
     storeId: 'store_cruda_main',
     name: String(name).trim(),
-    email: String(email).trim(),
+    email: String(email || '').trim(),
     phone: String(phone || '').trim(),
     projectType: String(projectType || 'Residencial / Interiorismo'),
     city: String(city || 'Bogotá'),
     message: String(message).trim(),
-    acceptedPrivacy: Boolean(acceptedPrivacy),
+    acceptedPrivacy: acceptedPrivacy !== undefined ? Boolean(acceptedPrivacy) : true,
     createdAt: new Date().toISOString(),
   };
   contacts.unshift(entry);
@@ -547,8 +611,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  🪴  CRUDA API → http://localhost:${PORT}`);
-  console.log(`  📂  Uploads  → ${UPLOADS_DIR}`);
-  console.log(`  📋  Datos    → ${DATA_FILE}\n`);
-});
+if (!IS_VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`\n  🪴  CRUDA API → http://localhost:${PORT}`);
+    console.log(`  📂  Uploads  → ${UPLOADS_DIR}`);
+    console.log(`  📋  Datos    → ${DATA_FILE}\n`);
+  });
+}
+
+export default app;
