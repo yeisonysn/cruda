@@ -1,13 +1,24 @@
 // src/components/Interactive3DLab.tsx
-// Visualizador 3D interactivo y suite de Realidad Aumentada (WebXR) de CRUDA.
-// Soporta renderizado de archivos .STL del servidor, geometrías puras de catálogo,
-// rotación/zoom con mouse y touch, selección de acabados de concreto en vivo y anclaje AR.
+// Visualizador 3D de Estudio Interactivo & Suite WebXR de CRUDA.
+// Entorno de iluminación HDRI de estudio (RoomEnvironment), textura procedural de concreto mineral,
+// sombra de contacto dinámica, selector vertical de modelos .STL y acabados, y anclaje AR.
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import { Camera, RotateCcw, ShoppingBag, MessageSquare, Sparkles, Check } from 'lucide-react';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import {
+  Camera,
+  RotateCcw,
+  ShoppingBag,
+  MessageSquare,
+  Sparkles,
+  Pause,
+  Play,
+  Plus,
+  Layers,
+} from 'lucide-react';
 import { FINISH_COLORS } from '../data/catalogData';
 
 export interface ServerStlMatera {
@@ -40,6 +51,63 @@ interface Props {
 
 type LabMode = 'procedural-cylinder' | 'procedural-octagon' | 'procedural-cone' | 'stl-model';
 
+const SCALE_SPECS: Record<'S' | 'M' | 'L', { dimensions: string; weight: string; multiplier: number }> = {
+  S: { dimensions: 'Ø 18 × H 20 cm', weight: '3.5 kg', multiplier: 0.8 },
+  M: { dimensions: 'Ø 26 × H 30 cm', weight: '8.2 kg', multiplier: 1.0 },
+  L: { dimensions: 'Ø 34 × H 40 cm', weight: '14.5 kg', multiplier: 1.45 },
+};
+
+/** Genera texturas procedurales de microporosidad mineral para concreto arquitectónico. */
+function createConcreteTextures(): { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  const size = 256;
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = size;
+  bumpCanvas.height = size;
+  const bCtx = bumpCanvas.getContext('2d');
+
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = size;
+  roughCanvas.height = size;
+  const rCtx = roughCanvas.getContext('2d');
+
+  if (bCtx && rCtx) {
+    const bImg = bCtx.createImageData(size, size);
+    const rImg = rCtx.createImageData(size, size);
+
+    for (let i = 0; i < bImg.data.length; i += 4) {
+      const grain = Math.random();
+      // Porosidad sutil de concreto UHPC
+      const pore = grain < 0.04 ? 95 : 185 + Math.floor((grain - 0.5) * 42);
+      const rough = 195 + Math.floor((grain - 0.5) * 50);
+
+      bImg.data[i] = pore;
+      bImg.data[i + 1] = pore;
+      bImg.data[i + 2] = pore;
+      bImg.data[i + 3] = 255;
+
+      rImg.data[i] = rough;
+      rImg.data[i + 1] = rough;
+      rImg.data[i + 2] = rough;
+      rImg.data[i + 3] = 255;
+    }
+
+    bCtx.putImageData(bImg, 0, 0);
+    rCtx.putImageData(rImg, 0, 0);
+  }
+
+  const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+  bumpMap.wrapS = THREE.RepeatWrapping;
+  bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.repeat.set(3, 3);
+
+  const roughnessMap = new THREE.CanvasTexture(roughCanvas);
+  roughnessMap.wrapS = THREE.RepeatWrapping;
+  roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.repeat.set(3, 3);
+
+  return { bumpMap, roughnessMap };
+}
+
 export const Interactive3DLab: React.FC<Props> = ({
   stlMateras,
   selectedStlUrl,
@@ -49,9 +117,12 @@ export const Interactive3DLab: React.FC<Props> = ({
   whatsappPhone = '573108204522',
 }) => {
   const [labMode, setLabMode] = useState<LabMode>(stlMateras.length > 0 ? 'stl-model' : 'procedural-cylinder');
-  const [activeColor, setActiveColor] = useState<string>('#A7A7A2');
-  const [activeFinishName, setActiveFinishName] = useState<string>('Gris Cemento Puro');
+  const [userPickedMode, setUserPickedMode] = useState<boolean>(false);
+  const [activeColor, setActiveColor] = useState<string>(FINISH_COLORS[1]?.hex || '#E6E4DD');
+  const [activeFinishName, setActiveFinishName] = useState<string>(FINISH_COLORS[1]?.name || 'Blanco Mineral Calizo');
   const [selectedScale, setSelectedScale] = useState<'S' | 'M' | 'L'>('M');
+  const [autoRotate, setAutoRotate] = useState<boolean>(true);
+  const [isLoadingStl, setIsLoadingStl] = useState<boolean>(false);
   const [arActive, setArActive] = useState<boolean>(false);
   const [arGuide, setArGuide] = useState<string>('Apunta al suelo para detectar superficies y toca para anclar la matera');
   const [arFeedback, setArFeedback] = useState<string | null>(null);
@@ -65,6 +136,8 @@ export const Interactive3DLab: React.FC<Props> = ({
     previewGroup?: THREE.Group;
     arGroup?: THREE.Group;
     reticle?: THREE.Mesh;
+    contactShadow?: THREE.Mesh;
+    concreteTextures?: { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture };
     hitTestSource?: any;
     xrSession?: any;
     placedAnchor?: any;
@@ -72,7 +145,14 @@ export const Interactive3DLab: React.FC<Props> = ({
     currentMesh?: THREE.Mesh;
   }>({});
 
-  // Geometrías procedurales del catálogo
+  // Cambiar automáticamente a modo STL cuando carguen los modelos del servidor si el usuario no eligió otro
+  useEffect(() => {
+    if (!userPickedMode && stlMateras.length > 0 && selectedStlUrl) {
+      setLabMode('stl-model');
+    }
+  }, [stlMateras, selectedStlUrl, userPickedMode]);
+
+  // Geometrías procedurales base del catálogo
   const createProceduralGeometry = (mode: LabMode): THREE.BufferGeometry => {
     if (mode === 'procedural-octagon') {
       const geo = new THREE.CylinderGeometry(0.16, 0.13, 0.32, 8);
@@ -86,21 +166,20 @@ export const Interactive3DLab: React.FC<Props> = ({
       geo.translate(0, 0.17, 0);
       return geo;
     }
-    // Procedural cylinder (CR-001)
     const geo = new THREE.CylinderGeometry(0.15, 0.15, 0.35, 64);
     geo.computeVertexNormals();
     geo.translate(0, 0.175, 0);
     return geo;
   };
 
-  // Inicialización de Three.js & WebXR
+  // Inicialización de Three.js con iluminación HDRI de estudio y sombras suaves
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 30);
-    camera.position.set(0, 0.42, 0.85);
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 30);
+    camera.position.set(0.32, 0.36, 0.78);
 
     const renderer = new THREE.WebGLRenderer({
       canvas,
@@ -111,31 +190,85 @@ export const Interactive3DLab: React.FC<Props> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.xr.enabled = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Entorno HDRI de estudio (RoomEnvironment) para reflejos y volumen realistas
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    const envTarget = pmremGenerator.fromScene(roomEnv, 0.04);
+    scene.environment = envTarget.texture;
+    scene.environmentIntensity = 0.65;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.maxDistance = 2.2;
-    controls.minDistance = 0.35;
-    controls.maxPolarAngle = Math.PI / 2 + 0.08;
+    controls.enablePan = false;
+    controls.maxDistance = 1.9;
+    controls.minDistance = 0.42;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minPolarAngle = 0.25;
+    controls.target.set(0, 0.15, 0);
+    controls.autoRotate = autoRotate;
+    controls.autoRotateSpeed = 1.05;
 
-    // Iluminación arquitectónica
-    scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+    // Luz principal de estudio con proyección de sombra suave
+    const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.85);
+    keyLight.position.set(1.8, 3.2, 2.0);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 8;
+    const d = 0.6;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0005;
+    scene.add(keyLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
-    sunLight.position.set(2.2, 3.8, 2.2);
-    scene.add(sunLight);
-
-    const fillLight = new THREE.DirectionalLight(0xd5dbdb, 0.8);
-    fillLight.position.set(-2, -1, -2);
-    scene.add(fillLight);
+    // Luz de contra/borde para separar la silueta del fondo claro
+    const rimLight = new THREE.DirectionalLight(0xdce6ee, 0.9);
+    rimLight.position.set(-2.2, 1.8, -1.8);
+    scene.add(rimLight);
 
     const previewGroup = new THREE.Group();
     scene.add(previewGroup);
 
     const arGroup = new THREE.Group();
     scene.add(arGroup);
+
+    // Plano receptor de sombra real en el suelo
+    const shadowPlaneGeo = new THREE.PlaneGeometry(2.5, 2.5);
+    const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.14 });
+    const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+    shadowPlane.rotation.x = -Math.PI / 2;
+    shadowPlane.position.y = -0.001;
+    shadowPlane.receiveShadow = true;
+    previewGroup.add(shadowPlane);
+
+    // Sombra de contacto radial suave debajo de la base
+    const contactGeo = new THREE.PlaneGeometry(0.55, 0.55);
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = 128;
+    shadowCanvas.height = 128;
+    const ctx = shadowCanvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(64, 64, 6, 64, 64, 62);
+      grad.addColorStop(0, 'rgba(23, 42, 56, 0.34)');
+      grad.addColorStop(0.5, 'rgba(23, 42, 56, 0.12)');
+      grad.addColorStop(1, 'rgba(23, 42, 56, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    const contactTex = new THREE.CanvasTexture(shadowCanvas);
+    const contactMat = new THREE.MeshBasicMaterial({ map: contactTex, transparent: true, depthWrite: false });
+    const contactShadow = new THREE.Mesh(contactGeo, contactMat);
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.y = -0.0005;
+    previewGroup.add(contactShadow);
 
     // Retícula WebXR para detección de superficies reales
     const reticleGeo = new THREE.RingGeometry(0.09, 0.11, 32).rotateX(-Math.PI / 2);
@@ -145,28 +278,7 @@ export const Interactive3DLab: React.FC<Props> = ({
     reticle.visible = false;
     scene.add(reticle);
 
-    // Sombra de contacto en el piso virtual
-    const shadowGeo = new THREE.PlaneGeometry(0.65, 0.65);
-    const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = 128;
-    shadowCanvas.height = 128;
-    const ctx = shadowCanvas.getContext('2d');
-    if (ctx) {
-      const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
-      grad.addColorStop(0, 'rgba(17, 19, 19, 0.45)');
-      grad.addColorStop(0.5, 'rgba(17, 19, 19, 0.15)');
-      grad.addColorStop(1, 'rgba(17, 19, 19, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 128, 128);
-    }
-    const shadowTex = new THREE.CanvasTexture(shadowCanvas);
-    const shadowMesh = new THREE.Mesh(
-      shadowGeo,
-      new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })
-    );
-    shadowMesh.rotation.x = -Math.PI / 2;
-    shadowMesh.position.y = -0.002;
-    previewGroup.add(shadowMesh);
+    const concreteTextures = createConcreteTextures();
 
     threeRef.current = {
       renderer,
@@ -176,12 +288,14 @@ export const Interactive3DLab: React.FC<Props> = ({
       previewGroup,
       arGroup,
       reticle,
+      contactShadow,
+      concreteTextures,
     };
 
     const resizeObserver = new ResizeObserver(() => {
       if (!canvas) return;
       const w = canvas.clientWidth || 600;
-      const h = canvas.clientHeight || 460;
+      const h = canvas.clientHeight || 480;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h, false);
@@ -221,7 +335,6 @@ export const Interactive3DLab: React.FC<Props> = ({
       renderer.setAnimationLoop(null);
       controls.dispose();
 
-      // Limpieza explícita de memoria GPU (geometrías, materiales y texturas)
       const disposeHierarchy = (group: THREE.Object3D) => {
         group.traverse((obj) => {
           const mesh = obj as THREE.Mesh;
@@ -240,22 +353,39 @@ export const Interactive3DLab: React.FC<Props> = ({
       disposeHierarchy(arGroup);
       reticleGeo.dispose();
       reticleMat.dispose();
-      shadowGeo.dispose();
-      shadowTex.dispose();
+      shadowPlaneGeo.dispose();
+      shadowPlaneMat.dispose();
+      contactGeo.dispose();
+      contactMat.dispose();
+      contactTex.dispose();
+      concreteTextures.bumpMap.dispose();
+      concreteTextures.roughnessMap.dispose();
+      envTarget.dispose();
+      roomEnv.dispose();
+      pmremGenerator.dispose();
       renderer.dispose();
     };
   }, [arActive]);
 
-  // Carga de geometría (STL o Procedural)
+  // Sincronizar auto-rotación con OrbitControls
   useEffect(() => {
-    const { previewGroup } = threeRef.current;
+    if (threeRef.current.controls) {
+      threeRef.current.controls.autoRotate = autoRotate;
+    }
+  }, [autoRotate]);
+
+  // Carga de geometría (STL subido o Procedural)
+  useEffect(() => {
+    const { previewGroup, concreteTextures, contactShadow } = threeRef.current;
     if (!previewGroup) return;
 
     const mountGeometry = (geometry: THREE.BufferGeometry) => {
       threeRef.current.currentGeometry = geometry;
 
-      // Limpiar y liberar memoria GPU de mallas previas excepto la sombra base
-      const meshesToRemove = previewGroup.children.filter((child) => child.type === 'Mesh' && child.position.y > 0);
+      // Eliminar solo las mallas de producto anteriores (conservar planos de sombra en y <= 0)
+      const meshesToRemove = previewGroup.children.filter(
+        (child) => child.type === 'Mesh' && child.userData?.isPlanterMesh
+      );
       meshesToRemove.forEach((m) => {
         const mesh = m as THREE.Mesh;
         mesh.geometry?.dispose();
@@ -269,18 +399,37 @@ export const Interactive3DLab: React.FC<Props> = ({
 
       const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(activeColor),
-        roughness: 0.85,
-        metalness: 0.05,
+        roughness: 0.88,
+        metalness: 0.04,
+        bumpMap: concreteTextures?.bumpMap || null,
+        bumpScale: 0.0022,
+        roughnessMap: concreteTextures?.roughnessMap || null,
       });
 
       const mesh = new THREE.Mesh(geometry, mat);
+      mesh.userData.isPlanterMesh = true;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+
+      const scaleFactor = selectedScale === 'S' ? 0.82 : selectedScale === 'L' ? 1.22 : 1.0;
+      mesh.scale.setScalar(scaleFactor);
+
+      // Ajustar sombra de contacto al footprint de la geometría
+      geometry.computeBoundingBox();
+      if (contactShadow && geometry.boundingBox) {
+        const bSize = new THREE.Vector3();
+        geometry.boundingBox.getSize(bSize);
+        const footprint = Math.max(bSize.x, bSize.z, 0.2) * 1.45 * scaleFactor;
+        contactShadow.scale.set(footprint / 0.55, footprint / 0.55, 1);
+      }
+
       previewGroup.add(mesh);
       threeRef.current.currentMesh = mesh;
+      setIsLoadingStl(false);
     };
 
     if (labMode === 'stl-model' && selectedStlUrl) {
+      setIsLoadingStl(true);
       const loader = new STLLoader();
       loader.load(
         selectedStlUrl,
@@ -291,7 +440,7 @@ export const Interactive3DLab: React.FC<Props> = ({
           const size = new THREE.Vector3();
           box.getSize(size);
           const maxDim = Math.max(size.x, size.y, size.z, 0.001);
-          const scale = 0.28 / maxDim;
+          const scale = 0.32 / maxDim;
           geometry.scale(scale, scale, scale);
           geometry.computeBoundingBox();
           if (geometry.boundingBox) {
@@ -309,14 +458,22 @@ export const Interactive3DLab: React.FC<Props> = ({
     }
   }, [labMode, selectedStlUrl]);
 
-  // Actualizar color y escala reactivamente
+  // Actualizar color y escala reactivamente sin recargar el STL
   useEffect(() => {
     const mesh = threeRef.current.currentMesh;
+    const contactShadow = threeRef.current.contactShadow;
     if (!mesh) return;
     const mat = mesh.material as THREE.MeshStandardMaterial;
     mat.color.set(activeColor);
-    const scaleFactor = selectedScale === 'S' ? 0.82 : selectedScale === 'L' ? 1.25 : 1.0;
+    const scaleFactor = selectedScale === 'S' ? 0.82 : selectedScale === 'L' ? 1.22 : 1.0;
     mesh.scale.setScalar(scaleFactor);
+
+    if (contactShadow && threeRef.current.currentGeometry?.boundingBox) {
+      const bSize = new THREE.Vector3();
+      threeRef.current.currentGeometry.boundingBox.getSize(bSize);
+      const footprint = Math.max(bSize.x, bSize.z, 0.2) * 1.45 * scaleFactor;
+      contactShadow.scale.set(footprint / 0.55, footprint / 0.55, 1);
+    }
   }, [activeColor, selectedScale]);
 
   // Flujo WebXR (Realidad Aumentada móvil con hit-test y anclaje)
@@ -337,7 +494,7 @@ export const Interactive3DLab: React.FC<Props> = ({
         domOverlay: { root: document.getElementById('cruda-ar-dom-overlay') },
       });
 
-      const { renderer, previewGroup, arGroup, reticle } = threeRef.current;
+      const { renderer, previewGroup, arGroup, reticle, concreteTextures } = threeRef.current;
       if (!renderer) return;
 
       renderer.xr.setReferenceSpaceType('local');
@@ -361,8 +518,10 @@ export const Interactive3DLab: React.FC<Props> = ({
 
         const mat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(activeColor),
-          roughness: 0.85,
-          metalness: 0.05,
+          roughness: 0.88,
+          metalness: 0.04,
+          bumpMap: concreteTextures?.bumpMap || null,
+          bumpScale: 0.0022,
         });
         const model = new THREE.Mesh(threeRef.current.currentGeometry, mat);
 
@@ -374,7 +533,6 @@ export const Interactive3DLab: React.FC<Props> = ({
         model.position.copy(pos);
         model.quaternion.copy(quat);
 
-        // Anclar en el espacio del mundo real (XRAnchor)
         if (frame && 'createAnchor' in frame) {
           try {
             const transform = new (window as any).XRRigidTransform(
@@ -430,199 +588,279 @@ export const Interactive3DLab: React.FC<Props> = ({
       ? 290000
       : 185000;
 
-  const scaleMultiplier = selectedScale === 'S' ? 0.8 : selectedScale === 'L' ? 1.45 : 1;
-  const computedPrice = Math.round((currentBasePrice * scaleMultiplier) / 1000) * 1000;
+  const computedPrice = Math.round((currentBasePrice * SCALE_SPECS[selectedScale].multiplier) / 1000) * 1000;
 
   const activeModelTitle =
     labMode === 'stl-model' && selectedStlObj
       ? selectedStlObj.nombre
       : labMode === 'procedural-octagon'
-      ? 'Prisma Octagonal (CR-002)'
+      ? 'Prisma Octagonal'
       : labMode === 'procedural-cone'
-      ? 'Cono Truncado (CR-003)'
-      : 'Cilindro Puro (CR-001)';
+      ? 'Cono Truncado'
+      : 'Cilindro Puro';
+
+  const activeModelCode =
+    labMode === 'stl-model' && selectedStlObj
+      ? `STL-${selectedStlObj.id.slice(-4).toUpperCase()}`
+      : labMode === 'procedural-octagon'
+      ? 'CR-002'
+      : labMode === 'procedural-cone'
+      ? 'CR-003'
+      : 'CR-001';
+
+  const activeModelDescription =
+    labMode === 'stl-model' && selectedStlObj?.descripcion
+      ? selectedStlObj.descripcion
+      : 'Pieza arquitectónica vaciada en concreto UHPC pigmentado en masa, con sellado hidrófugo mate y drenaje integrado.';
 
   const handleOrderWhatsApp = () => {
-    const text = `Hola CRUDA, estoy interesado en adquirir/cotizar esta pieza del Visualizador 3D:
-• Modelo: ${activeModelTitle}
+    const text = `Hola CRUDA, estoy interesado en adquirir/cotizar esta pieza del Estudio 3D:
+• Modelo: ${activeModelTitle} (${activeModelCode})
 • Acabado: ${activeFinishName} (${activeColor})
-• Escala: ${selectedScale}
+• Escala: ${selectedScale} (${SCALE_SPECS[selectedScale].dimensions})
 • Precio estimado: $${computedPrice.toLocaleString('es-CO')} COP
 ¿Podrían confirmarme disponibilidad y tiempo de entrega?`;
     window.open(`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   return (
-    <section id="visualizador-3d" className="py-20 bg-[#161818] text-[#F1F0EB] border-t border-[#292B2B]">
+    <section
+      id="visualizador-3d"
+      className="py-20 sm:py-24 bg-[#F2F2F2] text-[#172A38] border-y border-[#E2E2DE]"
+      style={{
+        backgroundImage: 'radial-gradient(circle at 50% 52%, #FFFFFF 0%, #F2F2F2 56%, #E8E8E4 100%)',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Encabezado de la sección */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#242626] border border-[#3A3D3D] text-[#B6A17E] font-mono text-[10px] uppercase tracking-widest mb-3">
-              <Sparkles className="w-3 h-3" aria-hidden="true" />
-              <span>Visualizador 3D Interactivo & AR</span>
-            </div>
-            <h2 className="font-serif text-3xl sm:text-4xl text-[#F1F0EB] tracking-wide">
-              EXPLORA EN 3D Y REALIDAD AUMENTADA
-            </h2>
+        {/* Encabezado limpio estilo vitrina de estudio */}
+        <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+          <div className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-[#5C6B73] mb-3">
+            <Sparkles className="w-3.5 h-3.5 text-[#D95D24]" aria-hidden="true" />
+            <span>Estudio 3D en Tiempo Real · Catálogo STL</span>
           </div>
-          <p className="text-xs sm:text-sm text-[#A7A7A2] max-w-md font-light leading-relaxed">
-            Rota 360°, haz zoom, cambia el color mineral en tiempo real o proyecta la pieza en tu espacio físico con la cámara del celular.
-          </p>
+          <h2 className="font-serif text-3xl sm:text-5xl text-[#172A38] tracking-tight">
+            MATERAS <span className="font-light text-[#5C6B73]">Adaptadas a tu espacio</span>
+          </h2>
         </div>
 
-        {/* Contenedor principal de la experiencia 3D */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 border border-[#2B2D2D] bg-[#111313] overflow-hidden">
-          {/* Columna Izquierda: Canvas WebGL 3D (7 cols) */}
-          <div className="lg:col-span-7 relative min-h-[380px] sm:min-h-[480px] flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[#2B2D2D] bg-gradient-to-b from-[#161818] to-[#0F1010]">
-            {/* HUD Superior */}
-            <div className="p-4 flex items-center justify-between z-10 pointer-events-none">
-              <span className="font-mono text-[10px] tracking-wider uppercase text-[#A7A7A2] bg-[#111313]/70 px-2.5 py-1 border border-[#2B2D2D]">
+        {/* Composición en 3 columnas (Especificaciones | Visor 3D Flotante | Selector STL y Pigmentos) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-center">
+          {/* COLUMNA IZQUIERDA: Ficha Técnica y Escala (3 cols) */}
+          <div className="lg:col-span-3 space-y-6 order-2 lg:order-1">
+            <div>
+              <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#8C969E] block mb-1">
+                {activeModelCode}
+              </span>
+              <h3 className="font-serif text-3xl sm:text-4xl font-bold text-[#172A38] leading-tight">
                 {activeModelTitle}
-              </span>
-              <span className="font-mono text-[10px] tracking-wider uppercase text-[#B6A17E] bg-[#111313]/70 px-2.5 py-1 border border-[#2B2D2D]">
-                Escala {selectedScale}
-              </span>
+              </h3>
+              <p className="mt-3 text-xs sm:text-sm text-[#4A555E] leading-relaxed font-light">
+                {activeModelDescription}
+              </p>
             </div>
 
-            {/* Canvas Three.js */}
-            <div className="absolute inset-0">
-              <canvas ref={canvasRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
+            {/* Especificaciones apiladas estilo ficha industrial */}
+            <div className="space-y-3 pt-4 border-t border-[#DCDCD6] text-xs">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[#6B7780] font-medium">Material</span>
+                <span className="font-mono text-[#172A38] font-semibold">Concreto UHPC (&gt;65 MPa)</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[#6B7780] font-medium">Dimensiones</span>
+                <span className="font-mono text-[#172A38] font-semibold">{SCALE_SPECS[selectedScale].dimensions}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[#6B7780] font-medium">Peso estimado</span>
+                <span className="font-mono text-[#172A38] font-semibold">{SCALE_SPECS[selectedScale].weight}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[#6B7780] font-medium">Drenaje</span>
+                <span className="font-mono text-[#172A38] font-semibold">Orificio + tapón goma</span>
+              </div>
             </div>
 
-            {/* Barra Inferior del Canvas */}
-            <div className="p-4 flex flex-wrap items-center justify-between gap-2 z-10 bg-gradient-to-t from-[#111313] via-[#111313]/80 to-transparent">
-              <span className="font-mono text-[10px] text-[#A7A7A2]">
-                Arrastra para rotar · Rueda o pellizca para zoom
+            {/* Selector de Escala S / M / L */}
+            <div className="pt-2">
+              <span className="block font-mono text-[10px] uppercase tracking-widest text-[#6B7780] mb-2">
+                Escala de fabricación
               </span>
+              <div className="grid grid-cols-3 gap-2">
+                {(['S', 'M', 'L'] as const).map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => setSelectedScale(sz)}
+                    className={`py-2 px-3 font-mono text-xs uppercase transition-all border ${
+                      selectedScale === sz
+                        ? 'border-[#172A38] bg-[#172A38] text-white font-bold shadow-sm'
+                        : 'border-[#D4D4CE] bg-white/70 text-[#4A555E] hover:border-[#172A38]'
+                    }`}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-              <div className="flex items-center gap-2">
+            {/* Precio estimado */}
+            <div className="pt-4 border-t border-[#DCDCD6]">
+              <span className="block font-mono text-[10px] uppercase tracking-widest text-[#6B7780]">
+                Precio estimado
+              </span>
+              <div className="mt-1 font-serif text-3xl font-bold text-[#172A38]">
+                ${computedPrice.toLocaleString('es-CO')}{' '}
+                <span className="text-xs font-mono font-normal text-[#5C6B73]">COP</span>
+              </div>
+            </div>
+          </div>
+
+          {/* COLUMNA CENTRO: Visor 3D Flotante de Estudio (6 cols) */}
+          <div className="lg:col-span-6 relative flex flex-col items-center order-1 lg:order-2">
+            <div className="relative w-full h-[380px] sm:h-[480px] lg:h-[520px]">
+              <canvas
+                ref={canvasRef}
+                className="w-full h-full block cursor-grab active:cursor-grabbing"
+              />
+
+              {isLoadingStl && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="px-4 py-2 bg-white/90 backdrop-blur border border-[#DCDCD6] font-mono text-[11px] uppercase tracking-widest text-[#172A38] shadow-sm">
+                    Cargando geometría .STL…
+                  </span>
+                </div>
+              )}
+
+              {/* Controles flotantes minimalistas */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/85 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#DCDCD6] shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setAutoRotate((prev) => !prev)}
+                  title={autoRotate ? 'Pausar rotación' : 'Activar rotación 360°'}
+                  className="p-1.5 rounded-full text-[#4A555E] hover:text-[#172A38] hover:bg-[#F2F2F2] transition-colors"
+                  aria-label={autoRotate ? 'Pausar rotación' : 'Activar rotación 360°'}
+                >
+                  {autoRotate ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
                     const camera = threeRef.current.camera;
-                    if (camera) {
-                      camera.position.set(0, 0.42, 0.85);
-                      camera.lookAt(0, 0.17, 0);
+                    const controls = threeRef.current.controls;
+                    if (camera && controls) {
+                      camera.position.set(0.32, 0.36, 0.78);
+                      controls.target.set(0, 0.15, 0);
+                      controls.update();
                     }
                   }}
                   title="Restablecer vista"
-                  className="p-2 bg-[#1A1C1C] hover:bg-[#242626] border border-[#2B2D2D] text-[#A7A7A2] hover:text-[#F1F0EB] transition-colors"
+                  className="p-1.5 rounded-full text-[#4A555E] hover:text-[#172A38] hover:bg-[#F2F2F2] transition-colors"
                   aria-label="Restablecer posición de cámara"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </button>
+
+                <span className="h-3.5 w-px bg-[#DCDCD6]" aria-hidden="true" />
 
                 <button
                   type="button"
                   onClick={startWebXR}
-                  className="px-3.5 py-2 bg-[#B6A17E] hover:bg-[#C5B18E] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-semibold flex items-center gap-1.5 transition-colors"
+                  className="px-3 py-1 rounded-full bg-[#172A38] hover:bg-[#2C3B42] text-white font-mono text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 transition-colors"
                 >
-                  <Camera className="w-3.5 h-3.5" aria-hidden="true" />
+                  <Camera className="w-3 h-3" aria-hidden="true" />
                   <span>Ver en AR</span>
                 </button>
               </div>
             </div>
+
+            <p className="mt-2 text-center text-[11px] text-[#7A848C] italic">
+              *Arrastra 360° para inspeccionar el relieve. El poro y tono mineral pueden variar sutilmente en el vaciado artesanal.
+            </p>
           </div>
 
-          {/* Columna Derecha: Panel de Configuración (5 cols) */}
-          <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-between space-y-6 bg-[#161818]">
-            <div className="space-y-6">
-              {/* 1. Selector de Modelo */}
-              <div>
-                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#B6A17E] mb-2.5">
-                  1. Modelo a Visualizar
-                </label>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setLabMode('procedural-cylinder')}
-                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
-                      labMode === 'procedural-cylinder'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
-                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
-                    }`}
-                  >
-                    Cilindro Puro
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLabMode('procedural-octagon')}
-                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
-                      labMode === 'procedural-octagon'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
-                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
-                    }`}
-                  >
-                    Prisma Octagonal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLabMode('procedural-cone')}
-                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
-                      labMode === 'procedural-cone'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
-                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
-                    }`}
-                  >
-                    Cono Truncado
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLabMode('stl-model')}
-                    className={`py-2 px-3 text-left font-mono text-xs border transition-all ${
-                      labMode === 'stl-model'
-                        ? 'border-[#B6A17E] bg-[#B6A17E]/10 text-[#F1F0EB]'
-                        : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
-                    }`}
-                  >
-                    Archivos .STL ({stlMateras.length})
-                  </button>
-                </div>
-
-                {labMode === 'stl-model' && (
-                  <div className="p-3 bg-[#111313] border border-[#2B2D2D] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-[#A7A7A2]">
-                        Selecciona archivo STL:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={onOpenAdminModal}
-                        className="font-mono text-[10px] text-[#B6A17E] hover:underline"
-                      >
-                        + Subir nuevo STL
-                      </button>
-                    </div>
-                    <select
-                      value={selectedStlUrl}
-                      onChange={(e) => onSelectStlUrl(e.target.value)}
-                      className="w-full bg-[#1A1C1C] border border-[#2B2D2D] text-xs font-mono p-2 text-[#F1F0EB] outline-none focus:border-[#B6A17E]"
-                    >
-                      {stlMateras.length === 0 ? (
-                        <option value="">No hay archivos STL cargados</option>
-                      ) : (
-                        stlMateras.map((m) => (
-                          <option key={m.id} value={m.archivoUrl}>
-                            {m.nombre} — ${m.precio.toLocaleString('es-CO')} COP
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                )}
+          {/* COLUMNA DERECHA: Selector de Modelos .STL y Pigmentos (3 cols) */}
+          <div className="lg:col-span-3 space-y-6 order-3">
+            {/* 1. Selector de Modelos .STL subidos */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#6B7780] flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-[#172A38]" />
+                  Modelos .STL ({stlMateras.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={onOpenAdminModal}
+                  className="font-mono text-[10px] text-[#D95D24] hover:underline font-semibold flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" />
+                  Subir STL
+                </button>
               </div>
 
-              {/* 2. Acabado Mineral y Color */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="font-mono text-[10px] uppercase tracking-widest text-[#B6A17E]">
-                    2. Acabado Mineral
-                  </label>
-                  <span className="font-mono text-xs text-[#EAE5DC]">{activeFinishName}</span>
-                </div>
-                <div className="grid grid-cols-6 gap-2">
-                  {FINISH_COLORS.map((c) => (
+              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {stlMateras.map((m) => {
+                  const isActive = labMode === 'stl-model' && selectedStlUrl === m.archivoUrl;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        setUserPickedMode(true);
+                        setLabMode('stl-model');
+                        onSelectStlUrl(m.archivoUrl);
+                      }}
+                      className={`w-full text-left py-2 px-3 border-l-2 transition-all flex items-center justify-between gap-2 ${
+                        isActive
+                          ? 'border-[#172A38] bg-white shadow-sm text-[#172A38] font-semibold'
+                          : 'border-transparent hover:border-[#B8C0C5] text-[#5C6B73] hover:text-[#172A38] hover:bg-white/50'
+                      }`}
+                    >
+                      <span className="text-xs truncate">{m.nombre}</span>
+                      <span className="font-mono text-[10px] text-[#8C969E] shrink-0">
+                        ${Math.round(m.precio / 1000)}k
+                      </span>
+                    </button>
+                  );
+                })}
+
+                {/* Formas base procedurales siempre disponibles */}
+                {[
+                  { id: 'procedural-cylinder' as const, label: 'Cilindro Puro (Base)' },
+                  { id: 'procedural-octagon' as const, label: 'Prisma Octagonal (Base)' },
+                  { id: 'procedural-cone' as const, label: 'Cono Truncado (Base)' },
+                ].map((proc) => {
+                  const isActive = labMode === proc.id;
+                  return (
+                    <button
+                      key={proc.id}
+                      type="button"
+                      onClick={() => {
+                        setUserPickedMode(true);
+                        setLabMode(proc.id);
+                      }}
+                      className={`w-full text-left py-1.5 px-3 border-l-2 transition-all text-xs ${
+                        isActive
+                          ? 'border-[#172A38] bg-white shadow-sm text-[#172A38] font-semibold'
+                          : 'border-transparent hover:border-[#B8C0C5] text-[#6B7780] hover:text-[#172A38] hover:bg-white/50'
+                      }`}
+                    >
+                      {proc.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Selector vertical de pigmentos estilo Patriot */}
+            <div className="pt-4 border-t border-[#DCDCD6]">
+              <span className="block font-mono text-[10px] uppercase tracking-[0.2em] text-[#6B7780] mb-3">
+                Pigmento Mineral
+              </span>
+
+              <div className="space-y-1.5">
+                {FINISH_COLORS.map((c) => {
+                  const isSelected = activeColor.toLowerCase() === c.hex.toLowerCase();
+                  return (
                     <button
                       key={c.id}
                       type="button"
@@ -630,105 +868,84 @@ export const Interactive3DLab: React.FC<Props> = ({
                         setActiveColor(c.hex);
                         setActiveFinishName(c.name);
                       }}
-                      title={c.name}
-                      aria-label={`Seleccionar acabado ${c.name}`}
-                      className={`h-9 border transition-all flex items-center justify-center ${
-                        activeColor.toLowerCase() === c.hex.toLowerCase()
-                          ? 'border-[#B6A17E] ring-2 ring-[#B6A17E]/40 scale-105'
-                          : 'border-[#2B2D2D] opacity-80 hover:opacity-100'
-                      }`}
-                      style={{ backgroundColor: c.hex }}
+                      className="w-full flex items-center justify-between py-1.5 group text-left"
                     >
-                      {activeColor.toLowerCase() === c.hex.toLowerCase() && (
-                        <Check className="w-3.5 h-3.5 text-[#111313]" />
-                      )}
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`w-4 h-4 rounded-full border transition-transform ${
+                            isSelected ? 'border-[#172A38] scale-110 ring-2 ring-[#172A38]/20' : 'border-[#C8C8C2]'
+                          }`}
+                          style={{ backgroundColor: c.hex }}
+                        />
+                        <span
+                          className={`text-xs transition-colors ${
+                            isSelected ? 'font-bold text-[#172A38]' : 'text-[#5C6B73] group-hover:text-[#172A38]'
+                          }`}
+                        >
+                          {c.name}
+                        </span>
+                      </div>
+                      {/* Línea indicadora horizontal estilo Patriot */}
+                      <span
+                        className={`h-[2px] transition-all ${
+                          isSelected ? 'w-7 bg-[#172A38]' : 'w-0 bg-transparent group-hover:w-3 group-hover:bg-[#B8C0C5]'
+                        }`}
+                      />
                     </button>
-                  ))}
-                </div>
-
-                <div className="mt-3 flex items-center justify-between text-xs">
-                  <span className="font-mono text-[10px] uppercase text-[#A7A7A2]">Color libre personalizado:</span>
-                  <input
-                    type="color"
-                    value={activeColor}
-                    onChange={(e) => {
-                      setActiveColor(e.target.value);
-                      setActiveFinishName(`Tono Personalizado ${e.target.value.toUpperCase()}`);
-                    }}
-                    className="w-7 h-7 bg-transparent border border-[#2B2D2D] cursor-pointer"
-                    title="Elegir tono personalizado"
-                  />
-                </div>
+                  );
+                })}
               </div>
 
-              {/* 3. Escala */}
-              <div>
-                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#B6A17E] mb-2">
-                  3. Escala / Dimensiones
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['S', 'M', 'L'] as const).map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => setSelectedScale(sz)}
-                      className={`py-2 px-3 border font-mono text-xs uppercase transition-all ${
-                        selectedScale === sz
-                          ? 'border-[#B6A17E] bg-[#B6A17E] text-[#111313] font-bold'
-                          : 'border-[#2B2D2D] bg-[#111313] text-[#A7A7A2] hover:border-[#3A3D3D]'
-                      }`}
-                    >
-                      Escala {sz}
-                    </button>
-                  ))}
-                </div>
+              <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-[#E6E6E0]">
+                <span className="font-mono text-[10px] uppercase text-[#6B7780]">Tono personalizado:</span>
+                <input
+                  type="color"
+                  value={activeColor}
+                  onChange={(e) => {
+                    setActiveColor(e.target.value);
+                    setActiveFinishName(`Tono Personalizado ${e.target.value.toUpperCase()}`);
+                  }}
+                  className="w-6 h-6 bg-transparent border border-[#C8C8C2] rounded cursor-pointer"
+                  title="Elegir tono personalizado"
+                />
               </div>
             </div>
 
             {arFeedback && (
-              <div role="status" className="p-3 bg-[#1A1C1C] border border-[#B6A17E]/40 text-xs font-mono text-[#D5C8B5]">
+              <div role="status" className="p-3 bg-white border border-[#172A38]/20 text-[11px] font-mono text-[#172A38]">
                 {arFeedback}
               </div>
             )}
 
-            {/* Acciones de compra / cotización */}
-            <div className="pt-4 border-t border-[#2B2D2D] space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase text-[#A7A7A2]">Precio estimado</span>
-                <span className="font-serif text-2xl text-[#F1F0EB]">
-                  ${computedPrice.toLocaleString('es-CO')} <span className="text-xs font-mono text-[#B6A17E]">COP</span>
-                </span>
-              </div>
+            {/* Botones de Acción */}
+            <div className="pt-2 space-y-2">
+              <button
+                type="button"
+                onClick={() =>
+                  onAddCustomToCart({
+                    name: activeModelTitle,
+                    sku: `LAB-${selectedScale}-${activeColor.replace('#', '').toUpperCase()}`,
+                    priceCop: computedPrice,
+                    colorHex: activeColor,
+                    finishName: activeFinishName,
+                    size: selectedScale,
+                    isCustomStl: labMode === 'stl-model',
+                  })
+                }
+                className="w-full py-3 px-4 bg-[#D95D24] hover:bg-[#BF4E1B] text-white font-mono text-[11px] uppercase tracking-widest font-bold flex items-center justify-center gap-2 transition-colors shadow-sm"
+              >
+                <ShoppingBag className="w-4 h-4" aria-hidden="true" />
+                <span>Añadir al Carrito</span>
+              </button>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleOrderWhatsApp}
-                  className="py-3 px-4 bg-[#25D366] hover:bg-[#20ba5a] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-bold flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <MessageSquare className="w-4 h-4" aria-hidden="true" />
-                  <span>Pedir por WhatsApp</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    onAddCustomToCart({
-                      name: activeModelTitle,
-                      sku: `LAB-${selectedScale}-${activeColor.replace('#', '').toUpperCase()}`,
-                      priceCop: computedPrice,
-                      colorHex: activeColor,
-                      finishName: activeFinishName,
-                      size: selectedScale,
-                      isCustomStl: labMode === 'stl-model',
-                    })
-                  }
-                  className="py-3 px-4 bg-[#B6A17E] hover:bg-[#C5B18E] text-[#111313] font-mono text-[11px] uppercase tracking-wider font-bold flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <ShoppingBag className="w-4 h-4" aria-hidden="true" />
-                  <span>Añadir al Carrito</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleOrderWhatsApp}
+                className="w-full py-2.5 px-4 bg-white hover:bg-[#172A38] text-[#172A38] hover:text-white border border-[#172A38] font-mono text-[11px] uppercase tracking-widest font-semibold flex items-center justify-center gap-2 transition-colors"
+              >
+                <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Cotizar por WhatsApp</span>
+              </button>
             </div>
           </div>
         </div>

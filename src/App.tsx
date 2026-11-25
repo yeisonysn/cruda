@@ -643,87 +643,78 @@ Dirección: ${customerForm.address || 'Por definir'}
 
       <main className="flex-1">
         {/* ═══════════════════════════════════════════════════════════════════════
-            2. HERO PRINCIPAL MINIMALISTA
+            2. HERO PRINCIPAL DE ESTUDIO (Inspirado en estética industrial dramática)
            ═══════════════════════════════════════════════════════════════════════ */}
-        <section className="relative pt-16 pb-20 sm:pt-24 sm:pb-28 border-b border-[#EAE5DC] bg-gradient-to-b from-[#FDFCFA] via-[#F8F6F1] to-[#F3F0E8] overflow-hidden">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
-              {/* Texto y Frase de Marca */}
-              <div className="lg:col-span-7 space-y-6">
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#EAE5DC]/60 border border-[#D5C8B5] text-[#596153] font-mono text-[10px] uppercase tracking-widest">
-                  <span>Concreto UHPC & Manufactura de Diseño</span>
-                </div>
+        <section className="relative min-h-[580px] sm:min-h-[650px] flex items-center bg-[#172A38] text-[#FDFCFA] overflow-hidden border-b border-[#2C3B42]">
+          {/* Fotografía de estudio en el fondo derecho */}
+          <img
+            src="/hero-materas.jpg"
+            alt="Colección de materas arquitectónicas en concreto pigmentado CRUDA"
+            className="absolute inset-0 w-full h-full object-cover object-right opacity-90"
+          />
+          {/* Degradado lateral oscuro para contraste limpio de la tipografía */}
+          <div
+            className="absolute inset-0 bg-gradient-to-r from-[#172A38] via-[#172A38]/90 lg:via-[#172A38]/75 to-transparent"
+            aria-hidden="true"
+          />
+          <div
+            className="absolute inset-0 bg-gradient-to-t from-[#11161A]/80 via-transparent to-[#172A38]/40"
+            aria-hidden="true"
+          />
 
-                <h1 className="font-serif text-4xl sm:text-6xl lg:text-[68px] leading-[1.08] tracking-tight text-[#111313]">
-                  Objetos de concreto para habitar el espacio.
-                </h1>
-
-                <p className="text-base sm:text-lg text-[#5C5C57] max-w-xl font-light leading-relaxed">
-                  Materas de ultra alto rendimiento moldeadas con pureza geométrica, textura pétrea mate y sellado hidrófugo integral. Diseñadas y fabricadas en Bogotá, Colombia.
-                </p>
-
-                <div className="pt-2 flex flex-wrap items-center gap-3">
-                  <a
-                    href="#coleccion"
-                    className="px-7 py-3.5 bg-[#111313] hover:bg-[#2B2D2D] text-[#FDFCFA] font-mono text-xs uppercase tracking-widest font-semibold transition-colors flex items-center gap-2"
-                  >
-                    <span>Explorar Colección</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </a>
-
-                  <a
-                    href="#visualizador-3d"
-                    className="px-6 py-3.5 border border-[#111313] hover:bg-[#111313] hover:text-[#FDFCFA] font-mono text-xs uppercase tracking-widest transition-colors flex items-center gap-2 text-[#111313]"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-[#B6A17E]" />
-                    <span>Ver en 3D / AR</span>
-                  </a>
-                </div>
-
-                <div className="pt-6 grid grid-cols-3 gap-4 border-t border-[#EAE5DC] max-w-md font-mono text-[11px] text-[#8C8C87]">
-                  <div>
-                    <span className="block text-[#111313] font-bold text-sm">&gt; 65 MPa</span>
-                    <span>Resistencia UHPC</span>
-                  </div>
-                  <div>
-                    <span className="block text-[#111313] font-bold text-sm">3D & STL</span>
-                    <span>Personalizable</span>
-                  </div>
-                  <div>
-                    <span className="block text-[#111313] font-bold text-sm">Nacional</span>
-                    <span>Envíos asegurados</span>
-                  </div>
-                </div>
+          <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 w-full">
+            <div className="max-w-2xl space-y-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-sm border border-white/20 text-[#D5DFE5] font-mono text-[10px] uppercase tracking-[0.22em]">
+                <span>Concreto UHPC &amp; Manufactura de Diseño</span>
               </div>
 
-              {/* Imagen Destacada de Matera */}
-              <div className="lg:col-span-5 relative flex items-center justify-center">
-                <div className="w-full aspect-[4/5] max-w-md bg-[#EAE5DC]/50 border border-[#D5C8B5] p-6 flex flex-col justify-between relative shadow-sm">
-                  <div className="flex justify-between items-start font-mono text-[10px] text-[#8C8C87] uppercase tracking-wider">
-                    <span>CR-001 · CILINDRO PURO</span>
-                    <span>BISEL 45°</span>
-                  </div>
+              <h1 className="font-serif text-4xl sm:text-6xl lg:text-[64px] leading-[1.06] tracking-tight text-white">
+                Objetos de concreto para habitar el espacio.
+              </h1>
 
-                  {/* Render Visual Arquitectónico del Modelo Principal */}
-                  <div className="my-auto h-[280px]">
-                    <ArchitecturalRender
-                      geometryType="cylinder"
-                      colorHex="#A7A7A2"
-                      referenceCode="CR-001"
-                      dimensionsLabel="Ø 28 × H 32 cm"
-                      showTechnicalLines={false}
-                    />
-                  </div>
+              <p className="text-base sm:text-lg text-[#D5DFE5] max-w-xl font-light leading-relaxed">
+                Materas de ultra alto rendimiento moldeadas con pureza geométrica, textura pétrea mate y sellado hidrófugo integral. Diseñadas y fabricadas en Colombia.
+              </p>
 
-                  <div className="flex items-center justify-between pt-4 border-t border-[#D5C8B5] font-mono text-xs">
-                    <span className="text-[#5C5C57]">Gris Cemento Puro</span>
-                    <button
-                      onClick={() => openProductDetail(PERMANENT_COLLECTION[0])}
-                      className="text-[#111313] font-bold hover:text-[#B6A17E] flex items-center gap-1 uppercase text-[11px]"
-                    >
-                      <span>Ver Ficha</span>
-                      <ArrowUpRight className="w-3.5 h-3.5" />
-                    </button>
+              <div className="pt-2 flex flex-wrap items-center gap-3">
+                <a
+                  href="#visualizador-3d"
+                  className="px-7 py-3.5 bg-[#D95D24] hover:bg-[#BF4E1B] text-white font-mono text-xs uppercase tracking-widest font-semibold transition-colors flex items-center gap-2 shadow-lg"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Explorar en 3D / STL</span>
+                </a>
+
+                <a
+                  href="#coleccion"
+                  className="px-6 py-3.5 border border-white/35 hover:bg-white hover:text-[#172A38] font-mono text-xs uppercase tracking-widest transition-colors flex items-center gap-2 text-white backdrop-blur-sm"
+                >
+                  <span>Ver Colección</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              {/* Franja inferior de 3 atributos con íconos minimalistas */}
+              <div className="pt-8 grid grid-cols-1 sm:grid-cols-3 gap-5 border-t border-white/15 max-w-xl">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-[#B6A17E] shrink-0 mt-0.5" aria-hidden="true" />
+                  <div>
+                    <span className="block text-white font-semibold text-xs tracking-wide">Alta Resistencia UHPC</span>
+                    <span className="text-[11px] text-[#A8B8C2]">&gt; 65 MPa · Uso interior y exterior</span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Box className="w-5 h-5 text-[#B6A17E] shrink-0 mt-0.5" aria-hidden="true" />
+                  <div>
+                    <span className="block text-white font-semibold text-xs tracking-wide">Modelos .STL en Vivo</span>
+                    <span className="text-[11px] text-[#A8B8C2]">Rotación 360° y Realidad Aumentada</span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Truck className="w-5 h-5 text-[#B6A17E] shrink-0 mt-0.5" aria-hidden="true" />
+                  <div>
+                    <span className="block text-white font-semibold text-xs tracking-wide">Diseño Colombiano</span>
+                    <span className="text-[11px] text-[#A8B8C2]">Envíos asegurados a todo el país</span>
                   </div>
                 </div>
               </div>
